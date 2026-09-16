@@ -1,7 +1,3 @@
-//! Thin HTTP layer: two routes, no business logic of their own. Everything
-//! here does is parse the request, call into the ports/core, and translate
-//! the result into a response.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,10 +15,6 @@ use crate::{compose, render, thread};
 #[cfg(test)]
 mod tests;
 
-/// How long a request will wait for a permit before giving up. Without this,
-/// the cap on *outbound* connections is real, but a large enough pileup of
-/// incoming requests could still exhaust the server's own resources waiting
-/// on a permit that never frees up.
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
@@ -78,9 +70,6 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Waits for a permit, giving up after `PERMIT_TIMEOUT` rather than queuing
-/// forever. The semaphore is never closed, so the only way `acquire` itself
-/// fails is a bug in this module.
 async fn acquire(semaphore: &Semaphore) -> Result<SemaphorePermit<'_>, StatusCode> {
     tokio::time::timeout(PERMIT_TIMEOUT, semaphore.acquire())
         .await

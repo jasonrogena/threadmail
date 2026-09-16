@@ -1,30 +1,15 @@
-//! Pure rendering of a resolved `Thread` into a semantic HTML5 fragment.
-//!
-//! No JavaScript, no client-side templating: this is the exact HTML that
-//! gets served at `GET /thread/<slug>` for the page's `<iframe>` to display.
-//! Every piece of message content is HTML-escaped here — this is the one
-//! place that stands between a commenter's text and a rendered page, so it
-//! is deliberately conservative rather than clever.
-
 use crate::thread::{Node, Thread};
 
 #[cfg(test)]
 mod tests;
 
-/// Rendering knobs a deployment can turn on or off independently of one
-/// another (see `Config::relay_comments`/`Config::show_email_link`).
 pub struct Options<'a> {
-    /// URL the no-JS reply forms post to.
     pub comment_action: &'a str,
-    /// The mailing list's own posting address, used for the `mailto:` link.
     pub mailto_address: &'a str,
-    /// Whether to render the no-JS comment forms at all.
     pub allow_relay: bool,
-    /// Whether to render the `mailto:` "comment by email" link.
     pub show_email_link: bool,
 }
 
-/// Renders an existing, resolved thread.
 pub fn render(thread: &Thread, options: &Options) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -37,10 +22,6 @@ pub fn render(thread: &Thread, options: &Options) -> String {
     out
 }
 
-/// Renders the state for a slug with no comments yet. Still offers a
-/// comment form (replying to nothing, i.e. a new top-level comment) when
-/// relaying is enabled, since a thread's root is just whichever real
-/// comment arrives first — nothing needs to exist beforehand.
 pub fn empty(slug: &str, options: &Options) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -97,8 +78,7 @@ fn render_node(node: &Node, options: &Options, out: &mut String) {
     out.push_str("</article>\n");
 }
 
-/// `in_reply_to` of `""` means "reply to nothing", i.e. a new top-level
-/// comment — the handler already treats an empty submitted value as `None`.
+// Empty in_reply_to means a new top-level comment.
 fn comment_form(action: &str, in_reply_to: &str) -> String {
     format!(
         "<form method=\"post\" action=\"{action}\">\n\
@@ -129,8 +109,6 @@ fn escape_paragraphs(input: &str) -> String {
         .join("\n")
 }
 
-/// Slugs are expected to already be URL-safe (kebab-case); this only guards
-/// against the one character a `mailto:` query value can't carry raw.
 fn url_encode_subject(slug: &str) -> String {
     slug.replace(' ', "%20")
 }

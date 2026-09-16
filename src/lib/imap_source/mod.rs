@@ -1,13 +1,4 @@
-//! The real `MailSource` adapter: an IMAP client talking to the bot
-//! account's own mailbox (it is a normal subscribed member of the mailing
-//! list, so every list message lands here as a copy). No background
-//! poller, no IDLE loop, no persisted state — a connection is opened fresh
-//! for each search, which is what keeps this adapter this small.
-//!
-//! TLS is rustls (with `webpki-roots` for the certificate store), not
-//! native-tls/OpenSSL — this binary is built statically against musl, and
-//! rustls's pure-Rust crypto (via `ring`) avoids the usual pain of
-//! statically linking OpenSSL under musl.
+// rustls, not native-tls, so the release binary can statically link musl.
 
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -58,9 +49,7 @@ impl ImapSource {
     }
 
     fn connect(&self) -> Result<Session<TlsStream>, Error> {
-        // Idempotent: a second install (e.g. one already made by lettre's
-        // own rustls transport) just returns the existing provider, which
-        // is fine to ignore here.
+        // Ignoring the error: it just means a provider is already installed.
         let _ = rustls::crypto::ring::default_provider().install_default();
 
         let root_store = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -88,10 +77,7 @@ impl MailSource for ImapSource {
         let mut session = self.connect()?;
         session.select("INBOX")?;
 
-        // IMAP's HEADER search is a case-insensitive substring match, which
-        // is exactly what we want: it matches both the exact slug on a
-        // thread's root and the "Re: <slug>" subject a reply's mail client
-        // produces, with no extra logic needed on our side.
+        // HEADER search is a substring match, so this also catches "Re: <slug>".
         let query = format!("HEADER Subject \"{}\"", escape_search_term(subject));
         let ids = session.search(&query)?;
 

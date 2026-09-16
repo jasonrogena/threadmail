@@ -1,6 +1,3 @@
-//! The real `MailSink` adapter: submits a composed comment to the mailing
-//! list over SMTP with STARTTLS, using the bot account's own credentials.
-
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{SmtpTransport, Transport};
 

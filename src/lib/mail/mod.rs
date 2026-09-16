@@ -1,9 +1,3 @@
-//! Pure parsing of raw RFC 5322 messages into the plain data this crate needs.
-//!
-//! Nothing in this module touches the network or the filesystem: it is a
-//! straight function from bytes to a `Message`, which is what keeps it
-//! trivially unit-testable with literal fixtures.
-
 use mail_parser::MessageParser;
 
 #[cfg(test)]
@@ -15,8 +9,6 @@ pub enum Error {
     Malformed,
 }
 
-/// The fields of an email this crate actually needs. Never carries the
-/// sender's address: only the header/body content that is safe to render.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub message_id: String,
@@ -29,15 +21,12 @@ pub struct Message {
 }
 
 impl Message {
-    /// A message with no `In-Reply-To`/`References` is a candidate thread
-    /// root; whether it is one for a particular slug is up to the caller.
     pub fn is_top_level(&self) -> bool {
         self.in_reply_to.is_none() && self.references.is_empty()
     }
 }
 
-/// `In-Reply-To` normally holds a single message-id but is technically a
-/// text-or-list header; this takes whichever variant mail-parser produced.
+// mail-parser can produce a Text or a TextList for In-Reply-To.
 fn first_text(value: &mail_parser::HeaderValue) -> Option<String> {
     value.as_text().map(|s| s.to_string()).or_else(|| {
         value

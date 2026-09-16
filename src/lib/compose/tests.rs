@@ -63,7 +63,5 @@ fn never_includes_a_real_commenter_address_because_none_is_collected() {
     .unwrap();
     let raw = String::from_utf8(msg.formatted()).unwrap();
 
-    // Carol's address doesn't exist anywhere in this crate to begin with;
-    // this just pins the visible sender identity down to the bot address.
     assert!(raw.contains("bot@ourdomain.com"));
 }

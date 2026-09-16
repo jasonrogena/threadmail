@@ -86,10 +86,6 @@ fn never_renders_a_real_email_address_for_a_commenter() {
 
     let html = render(&thread, &options(true, true));
 
-    // The commenter's own body text mentioning an address is their content,
-    // not something we derived or rendered on their behalf; what matters is
-    // that no *header-derived* address (there isn't one in `Message` at all)
-    // ever appears. `Message` has no address field to leak in the first place.
     assert!(html.contains("Alice"));
 }
 

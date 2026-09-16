@@ -1,9 +1,3 @@
-//! Builds the outbound RFC 5322 message for a web-submitted comment.
-//!
-//! Pure data transformation: given a name and a comment body, produces a
-//! `lettre::Message` ready to be handed to a `MailSink`. Nothing here talks
-//! to the network — that only happens once the caller submits the result.
-
 use lettre::Message;
 use lettre::message::Mailbox;
 
@@ -18,21 +12,12 @@ pub enum Error {
     Build(#[from] lettre::error::Error),
 }
 
-/// A comment submitted through the no-JS web form.
 pub struct NewComment<'a> {
     pub name: &'a str,
     pub body: &'a str,
-    /// `Message-ID` of the comment being replied to, if any. `None` means a
-    /// new top-level comment on the post.
     pub in_reply_to: Option<&'a str>,
 }
 
-/// Composes the message the bot account will submit to the mailing list on
-/// behalf of a web commenter. The bot's own address is used as the technical
-/// sender; the commenter's chosen name is carried in the `From` display-name
-/// so rendering reads display names the same way for web and native-email
-/// comments alike. No web commenter data beyond `name` and `body` is ever
-/// collected, let alone included here.
 pub fn compose(
     slug: &str,
     bot_address: &str,
