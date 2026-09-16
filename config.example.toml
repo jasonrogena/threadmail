@@ -22,6 +22,12 @@ posting_address = "our-comments@googlegroups.com"
 # Independent of relay_comments. Optional, defaults to true.
 # show_email_link = true
 
+# A regex matched against each comment's body; everything from the first
+# match onward is stripped before rendering. Useful for a mailing list
+# provider's own footer (e.g. an unsubscribe notice) that gets appended to
+# every message it relays. Optional, disabled (empty) by default.
+# body_footer_regex = '(?s)--\s*\nYou received this message.*'
+
 # Credentials for the bot account's own mailbox. The bot must be a normal
 # subscribed member of the mailing list, so every list message is delivered
 # here as a copy — no Google Groups API, no catch-all routing, and no

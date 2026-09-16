@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::{Form, Router};
+use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
@@ -25,6 +26,7 @@ pub struct AppState {
     list_posting_address: String,
     relay_comments: bool,
     show_email_link: bool,
+    body_footer_regex: Option<Regex>,
     search_limit: Arc<Semaphore>,
     submit_limit: Arc<Semaphore>,
 }
@@ -38,6 +40,7 @@ impl AppState {
         list_posting_address: String,
         relay_comments: bool,
         show_email_link: bool,
+        body_footer_regex: Option<Regex>,
         max_concurrent_searches: usize,
         max_concurrent_submits: usize,
     ) -> Self {
@@ -48,6 +51,7 @@ impl AppState {
             list_posting_address,
             relay_comments,
             show_email_link,
+            body_footer_regex,
             search_limit: Arc::new(Semaphore::new(max_concurrent_searches)),
             submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
         }
@@ -105,7 +109,7 @@ async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) ->
 
     let messages: Vec<_> = raw
         .into_iter()
-        .filter_map(|bytes| crate::mail::parse(&bytes).ok())
+        .filter_map(|bytes| crate::mail::parse(&bytes, state.body_footer_regex.as_ref()).ok())
         .collect();
 
     match thread::resolve(&slug, messages) {

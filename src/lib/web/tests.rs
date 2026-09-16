@@ -34,7 +34,7 @@ impl MailSink for FixtureSink {
         self.sent
             .lock()
             .unwrap()
-            .push(crate::mail::parse(&message.formatted()).unwrap());
+            .push(crate::mail::parse(&message.formatted(), None).unwrap());
         Ok(())
     }
 }
@@ -56,6 +56,7 @@ fn state_with(
         "group@googlegroups.com".to_string(),
         relay_comments,
         show_email_link,
+        None,
         8,
         4,
     )

@@ -41,6 +41,9 @@ pub struct ListConfig {
     pub relay_comments: bool,
     #[serde(default = "enabled")]
     pub show_email_link: bool,
+    // Everything from the first match onward is stripped from bodies; empty disables it.
+    #[serde(default)]
+    pub body_footer_regex: String,
 }
 
 #[derive(Debug, Deserialize)]

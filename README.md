@@ -28,15 +28,11 @@ That's the entire integration surface.
 
 ## Configuration
 
-Copy `config.example.toml`, fill in the bot account's IMAP/SMTP credentials and the mailing list's posting address, then:
+Copy `config.example.toml` and fill it in, then:
 
 ```sh
 threadmail --config-path ./config.toml serve
 ```
-
-Config is grouped by concern: `[server]`, `[list]` (addresses and comment-behavior toggles), `[imap]`/`[smtp]` (credentials), and `[limits]` (concurrency caps, optional). The IMAP/SMTP username and password can each be left out of the file entirely and set via `THREADMAIL_IMAP_USERNAME`/`THREADMAIL_IMAP_PASSWORD`/`THREADMAIL_SMTP_USERNAME`/`THREADMAIL_SMTP_PASSWORD` instead, which take precedence when set.
-
-A multi-arch Docker image (`FROM scratch`, no runtime dependencies) is published to `ghcr.io/jasonrogena/threadmail` on every tagged release. Mount your config at `/etc/threadmail/config.toml` and set `bind_address` to `0.0.0.0:<port>` so the server is reachable from outside the container.
 
 ## Building and testing
 

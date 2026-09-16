@@ -1154,13 +1154,14 @@ dependencies = [
 
 [[package]]
 name = "threadmail"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "axum",
  "clap",
  "imap",
  "lettre",
  "mail-parser",
+ "regex",
  "rustls",
  "serde",
  "thiserror",

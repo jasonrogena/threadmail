@@ -1,4 +1,5 @@
 use mail_parser::MessageParser;
+use regex::Regex;
 
 #[cfg(test)]
 mod tests;
@@ -36,7 +37,14 @@ fn first_text(value: &mail_parser::HeaderValue) -> Option<String> {
     })
 }
 
-pub fn parse(raw: &[u8]) -> Result<Message, Error> {
+fn strip_footer(body: &str, footer_regex: Option<&Regex>) -> String {
+    match footer_regex.and_then(|re| re.find(body)) {
+        Some(m) => body[..m.start()].trim_end().to_string(),
+        None => body.to_string(),
+    }
+}
+
+pub fn parse(raw: &[u8], footer_regex: Option<&Regex>) -> Result<Message, Error> {
     let parsed = MessageParser::default()
         .parse(raw)
         .ok_or(Error::Malformed)?;
@@ -63,7 +71,7 @@ pub fn parse(raw: &[u8]) -> Result<Message, Error> {
 
     let body = parsed
         .body_text(0)
-        .map(|s| s.trim().to_string())
+        .map(|s| strip_footer(s.trim(), footer_regex))
         .unwrap_or_default();
 
     let sent_at = parsed.date().map(|d| d.to_timestamp());

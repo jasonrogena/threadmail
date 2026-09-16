@@ -1,7 +1,7 @@
 use super::*;
 
 fn round_trip(msg: &Message) -> crate::mail::Message {
-    crate::mail::parse(&msg.formatted()).unwrap()
+    crate::mail::parse(&msg.formatted(), None).unwrap()
 }
 
 #[test]

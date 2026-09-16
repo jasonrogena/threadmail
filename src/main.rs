@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use regex::Regex;
 use threadmail::config::{self, Config};
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
@@ -95,6 +96,17 @@ async fn serve(config_path: &str) {
         "smtp.password",
     );
 
+    let body_footer_regex = if config.list.body_footer_regex.is_empty() {
+        None
+    } else {
+        Some(
+            Regex::new(&config.list.body_footer_regex).unwrap_or_else(|err| {
+                tracing::error!(%err, "invalid list.body_footer_regex");
+                std::process::exit(1);
+            }),
+        )
+    };
+
     let source = Arc::new(ImapSource::new(
         config.imap.host,
         config.imap.port,
@@ -121,6 +133,7 @@ async fn serve(config_path: &str) {
         config.list.posting_address,
         config.list.relay_comments,
         config.list.show_email_link,
+        body_footer_regex,
         config.limits.max_concurrent_searches,
         config.limits.max_concurrent_submits,
     );
