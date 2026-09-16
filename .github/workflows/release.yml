@@ -78,6 +78,9 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Make binaries executable
+        run: chmod +x dist/threadmail-linux-*
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
