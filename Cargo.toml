@@ -1,6 +1,6 @@
 [package]
 name = "threadmail"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "Static-site comments backed by a mailing list, not a database"
 license = "MIT"

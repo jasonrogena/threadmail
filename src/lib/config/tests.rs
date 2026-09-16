@@ -38,7 +38,7 @@ fn errors_when_the_file_does_not_exist() {
 }
 
 #[test]
-fn password_defaults_to_empty_string_when_omitted() {
+fn username_and_password_default_to_empty_string_when_omitted() {
     let toml_str = r#"
         [server]
         bind_address = "127.0.0.1:8080"
@@ -48,14 +48,14 @@ fn password_defaults_to_empty_string_when_omitted() {
         [imap]
         host = "imap.example.com"
         port = 993
-        username = "bot@example.com"
         [smtp]
         host = "smtp.example.com"
         port = 587
-        username = "bot@example.com"
     "#;
     let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.imap.username, "");
     assert_eq!(config.imap.password, "");
+    assert_eq!(config.smtp.username, "");
     assert_eq!(config.smtp.password, "");
 }
 

@@ -63,8 +63,9 @@ impl Default for Limits {
 pub struct ImapConfig {
     pub host: String,
     pub port: u16,
+    // Can also come from THREADMAIL_IMAP_USERNAME/_PASSWORD; see resolve_secret.
+    #[serde(default)]
     pub username: String,
-    // Can also come from THREADMAIL_IMAP_PASSWORD; see resolve_secret.
     #[serde(default)]
     pub password: String,
 }
@@ -73,8 +74,9 @@ pub struct ImapConfig {
 pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
+    // Can also come from THREADMAIL_SMTP_USERNAME/_PASSWORD; see resolve_secret.
+    #[serde(default)]
     pub username: String,
-    // Can also come from THREADMAIL_SMTP_PASSWORD; see resolve_secret.
     #[serde(default)]
     pub password: String,
 }

@@ -61,44 +61,51 @@ async fn main() {
     }
 }
 
+fn required(from_file: &str, env_var: &str, file_field: &str) -> String {
+    config::resolve_secret(from_file, std::env::var(env_var).ok()).unwrap_or_else(|| {
+        tracing::error!("no value set: set {file_field} in the config file or {env_var}");
+        std::process::exit(1);
+    })
+}
+
 async fn serve(config_path: &str) {
     let config = Config::load(config_path).unwrap_or_else(|err| {
         tracing::error!(%err, path = config_path, "could not load config");
         std::process::exit(1);
     });
 
-    let imap_password = config::resolve_secret(
+    let imap_username = required(
+        &config.imap.username,
+        "THREADMAIL_IMAP_USERNAME",
+        "imap.username",
+    );
+    let imap_password = required(
         &config.imap.password,
-        std::env::var("THREADMAIL_IMAP_PASSWORD").ok(),
-    )
-    .unwrap_or_else(|| {
-        tracing::error!(
-            "no IMAP password set: set imap.password in the config file or THREADMAIL_IMAP_PASSWORD"
-        );
-        std::process::exit(1);
-    });
-    let smtp_password = config::resolve_secret(
+        "THREADMAIL_IMAP_PASSWORD",
+        "imap.password",
+    );
+    let smtp_username = required(
+        &config.smtp.username,
+        "THREADMAIL_SMTP_USERNAME",
+        "smtp.username",
+    );
+    let smtp_password = required(
         &config.smtp.password,
-        std::env::var("THREADMAIL_SMTP_PASSWORD").ok(),
-    )
-    .unwrap_or_else(|| {
-        tracing::error!(
-            "no SMTP password set: set smtp.password in the config file or THREADMAIL_SMTP_PASSWORD"
-        );
-        std::process::exit(1);
-    });
+        "THREADMAIL_SMTP_PASSWORD",
+        "smtp.password",
+    );
 
     let source = Arc::new(ImapSource::new(
         config.imap.host,
         config.imap.port,
-        config.imap.username,
+        imap_username,
         imap_password,
     ));
     let sink = Arc::new(
         SmtpSink::new(
             &config.smtp.host,
             config.smtp.port,
-            config.smtp.username,
+            smtp_username,
             smtp_password,
         )
         .unwrap_or_else(|err| {
