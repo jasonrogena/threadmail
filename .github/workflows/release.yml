@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   test:
@@ -21,8 +22,10 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             asset_name: threadmail-x86_64-linux
+            docker_arch: amd64
           - target: aarch64-unknown-linux-musl
             asset_name: threadmail-aarch64-linux
+            docker_arch: arm64
 
     steps:
       - name: Checkout
@@ -48,3 +51,49 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.asset_name }}
+
+      - name: Stage binary for the Docker build
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/threadmail dist/threadmail-linux-${{ matrix.docker_arch }}
+
+      - name: Upload staged binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.docker_arch }}
+          path: dist/threadmail-linux-${{ matrix.docker_arch }}
+
+  docker:
+    name: Publish Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download staged binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest

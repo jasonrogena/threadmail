@@ -36,6 +36,8 @@ threadmail --config-path ./config.toml serve
 
 Config is grouped by concern: `[server]`, `[list]` (addresses and comment-behavior toggles), `[imap]`/`[smtp]` (credentials), and `[limits]` (concurrency caps, optional).
 
+A multi-arch Docker image (`FROM scratch`, no runtime dependencies) is published to `ghcr.io/jasonrogena/threadmail` on every tagged release. Mount your config at `/etc/threadmail/config.toml` and set `bind_address` to `0.0.0.0:<port>` so the server is reachable from outside the container.
+
 ## Building and testing
 
 ```sh
