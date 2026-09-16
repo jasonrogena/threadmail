@@ -36,3 +36,55 @@ fn errors_when_the_file_does_not_exist() {
     let err = Config::load("tests/configs/does-not-exist.toml").unwrap_err();
     assert!(matches!(err, Error::Io(_)));
 }
+
+#[test]
+fn password_defaults_to_empty_string_when_omitted() {
+    let toml_str = r#"
+        [server]
+        bind_address = "127.0.0.1:8080"
+        [list]
+        bot_address = "bot@example.com"
+        posting_address = "group@example.com"
+        [imap]
+        host = "imap.example.com"
+        port = 993
+        username = "bot@example.com"
+        [smtp]
+        host = "smtp.example.com"
+        port = 587
+        username = "bot@example.com"
+    "#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.imap.password, "");
+    assert_eq!(config.smtp.password, "");
+}
+
+#[test]
+fn resolve_secret_prefers_env_when_set_and_non_empty() {
+    assert_eq!(
+        resolve_secret("file-value", Some("env-value".to_string())),
+        Some("env-value".to_string())
+    );
+}
+
+#[test]
+fn resolve_secret_falls_back_to_file_when_env_is_unset() {
+    assert_eq!(
+        resolve_secret("file-value", None),
+        Some("file-value".to_string())
+    );
+}
+
+#[test]
+fn resolve_secret_falls_back_to_file_when_env_is_empty() {
+    assert_eq!(
+        resolve_secret("file-value", Some(String::new())),
+        Some("file-value".to_string())
+    );
+}
+
+#[test]
+fn resolve_secret_is_none_when_neither_is_set() {
+    assert_eq!(resolve_secret("", None), None);
+    assert_eq!(resolve_secret("", Some(String::new())), None);
+}

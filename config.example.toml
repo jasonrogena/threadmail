@@ -31,6 +31,9 @@ posting_address = "our-comments@googlegroups.com"
 host = "imap.gmail.com"
 port = 993
 username = "bot@ourdomain.example"
+# Optional here: can instead be set via the THREADMAIL_IMAP_PASSWORD
+# environment variable, which takes precedence if set. Leave this out
+# entirely to keep the password out of the config file altogether.
 password = "an-app-password-not-the-account-password"
 
 # Credentials used to submit a web-relayed comment to the list.
@@ -38,6 +41,7 @@ password = "an-app-password-not-the-account-password"
 host = "smtp.gmail.com"
 port = 587
 username = "bot@ourdomain.example"
+# Optional here: can instead be set via THREADMAIL_SMTP_PASSWORD.
 password = "an-app-password-not-the-account-password"
 
 # Caps on how many IMAP searches / SMTP submissions run at once, so a

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use threadmail::config::Config;
+use threadmail::config::{self, Config};
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
 use threadmail::web::{AppState, router};
@@ -67,18 +67,39 @@ async fn serve(config_path: &str) {
         std::process::exit(1);
     });
 
+    let imap_password = config::resolve_secret(
+        &config.imap.password,
+        std::env::var("THREADMAIL_IMAP_PASSWORD").ok(),
+    )
+    .unwrap_or_else(|| {
+        tracing::error!(
+            "no IMAP password set: set imap.password in the config file or THREADMAIL_IMAP_PASSWORD"
+        );
+        std::process::exit(1);
+    });
+    let smtp_password = config::resolve_secret(
+        &config.smtp.password,
+        std::env::var("THREADMAIL_SMTP_PASSWORD").ok(),
+    )
+    .unwrap_or_else(|| {
+        tracing::error!(
+            "no SMTP password set: set smtp.password in the config file or THREADMAIL_SMTP_PASSWORD"
+        );
+        std::process::exit(1);
+    });
+
     let source = Arc::new(ImapSource::new(
         config.imap.host,
         config.imap.port,
         config.imap.username,
-        config.imap.password,
+        imap_password,
     ));
     let sink = Arc::new(
         SmtpSink::new(
             &config.smtp.host,
             config.smtp.port,
             config.smtp.username,
-            config.smtp.password,
+            smtp_password,
         )
         .unwrap_or_else(|err| {
             tracing::error!(%err, "could not build the SMTP transport");

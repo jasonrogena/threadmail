@@ -85,6 +85,11 @@ pub struct ImapConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
+    /// Optional here: can instead be supplied via `THREADMAIL_IMAP_PASSWORD`,
+    /// which takes precedence when set (see `resolve_secret`). Left as an
+    /// empty string, not `Option`, so the rest of the config surface (and
+    /// every existing caller) doesn't need to change.
+    #[serde(default)]
     pub password: String,
 }
 
@@ -94,6 +99,9 @@ pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
+    /// Optional here: can instead be supplied via `THREADMAIL_SMTP_PASSWORD`,
+    /// which takes precedence when set. See `ImapConfig::password`.
+    #[serde(default)]
     pub password: String,
 }
 
@@ -102,4 +110,16 @@ impl Config {
         let contents = fs::read_to_string(path)?;
         Ok(toml::from_str(&contents)?)
     }
+}
+
+/// Resolves a secret that may come from the config file or an environment
+/// variable, with the environment variable taking precedence when set and
+/// non-empty. Deliberately pure (the env value is passed in, not read here)
+/// so callers can test it without mutating real process environment state;
+/// the one real `std::env::var` call lives in `main.rs`, right where the
+/// password is actually needed.
+pub fn resolve_secret(from_file: &str, from_env: Option<String>) -> Option<String> {
+    from_env
+        .filter(|v| !v.is_empty())
+        .or_else(|| Some(from_file.to_string()).filter(|v| !v.is_empty()))
 }
