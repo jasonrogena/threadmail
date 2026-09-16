@@ -1,0 +1,48 @@
+[server]
+# The address (host:port) the HTTP server listens on.
+bind_address = "127.0.0.1:8080"
+
+[list]
+# The bot account's own address. Used as the `From:` sender when relaying a
+# web-submitted comment; never shown to commenters as anything but the
+# technical sender ("<name> (via web) <bot_address>").
+bot_address = "bot@ourdomain.example"
+
+# The mailing list's posting address (e.g. a Google Group address). This is
+# what a web-relayed comment is sent to, and what the "comment by email"
+# mailto: link on the rendered page points at.
+posting_address = "our-comments@googlegroups.com"
+
+# Whether the no-JS web form relays comments into the mailing list. When
+# false, the page omits the comment form and posting to the comment
+# endpoint directly is rejected. Optional, defaults to true.
+# relay_comments = true
+
+# Whether the rendered page includes the mailto: "comment by email" link.
+# Independent of relay_comments. Optional, defaults to true.
+# show_email_link = true
+
+# Credentials for the bot account's own mailbox. The bot must be a normal
+# subscribed member of the mailing list, so every list message is delivered
+# here as a copy — no Google Groups API, no catch-all routing, and no
+# background poller: a thread is resolved fresh from this mailbox on every
+# request.
+[imap]
+host = "imap.gmail.com"
+port = 993
+username = "bot@ourdomain.example"
+password = "an-app-password-not-the-account-password"
+
+# Credentials used to submit a web-relayed comment to the list.
+[smtp]
+host = "smtp.gmail.com"
+port = 587
+username = "bot@ourdomain.example"
+password = "an-app-password-not-the-account-password"
+
+# Caps on how many IMAP searches / SMTP submissions run at once, so a
+# traffic spike can't hammer the mail provider. Optional — this whole
+# section can be omitted to use the defaults shown below.
+[limits]
+max_concurrent_searches = 8
+max_concurrent_submits = 4

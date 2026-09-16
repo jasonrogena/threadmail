@@ -1,0 +1,37 @@
+[package]
+name = "threadmail"
+version = "0.1.0"
+edition = "2024"
+description = "Static-site comments backed by a mailing list, not a database"
+license = "MIT"
+
+[[bin]]
+name = "threadmail"
+path = "src/main.rs"
+
+[lib]
+name = "threadmail"
+path = "src/lib/mod.rs"
+
+[dependencies]
+axum = "0.8.9"
+clap = { version = "4.6.7", features = ["derive"] }
+imap = { version = "2.4.1", default-features = false }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "rustls-tls", "ring"] }
+mail-parser = "0.11.9"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
+toml = "1.1.6"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+webpki-roots = "1.0.9"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

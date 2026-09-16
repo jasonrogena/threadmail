@@ -1,0 +1,22 @@
+[server]
+bind_address = "127.0.0.1:8080"
+
+[list]
+bot_address = "bot@ourdomain.example"
+posting_address = "group@googlegroups.com"
+
+[imap]
+host = "imap.gmail.com"
+port = 993
+username = "bot@ourdomain.example"
+password = "app-password"
+
+[smtp]
+host = "smtp.gmail.com"
+port = 587
+username = "bot@ourdomain.example"
+password = "app-password"
+
+[limits]
+max_concurrent_searches = 20
+max_concurrent_submits = 2

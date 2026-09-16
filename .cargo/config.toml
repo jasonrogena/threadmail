@@ -1,0 +1,12 @@
+# Static (musl) builds link with rust-lld so no target-specific gcc is
+# needed; ring's C objects are compiled with the host compiler for the
+# native-arch target (object code is libc-agnostic there).
+
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+
+[env]
+CC_aarch64_unknown_linux_musl = "gcc"
