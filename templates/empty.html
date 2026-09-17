@@ -7,7 +7,9 @@
 {% if just_posted %}
 <p class="posted-notice">Thanks! Your comment was submitted and may take a few moments to appear here.</p>
 {% endif %}
+{% if !stale %}
 <p class="empty-state">No comments yet. Be the first.</p>
+{% endif %}
 {% if !form_html.is_empty() %}
 {{ form_html|safe }}
 {% endif %}

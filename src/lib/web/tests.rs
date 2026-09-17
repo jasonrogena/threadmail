@@ -125,18 +125,22 @@ async fn renders_an_existing_thread() {
 }
 
 #[tokio::test]
-async fn renders_an_empty_state_when_no_thread_exists_yet() {
-    let app = router(state(
+async fn renders_an_empty_state_when_a_confirmed_search_found_nothing() {
+    let app_state = state(
         FixtureSource {
             raw_messages: Vec::new(),
         },
         Arc::new(FixtureSink::default()),
-    ));
+    );
+    // A fresh (not stale) empty entry represents a completed search that
+    // genuinely found nothing, as opposed to a cache that's simply cold.
+    seed(&app_state, "no-such-post", &[]);
 
-    let (status, html) = get_html(app, "/thread/no-such-post").await;
+    let (status, html) = get_html(router(app_state), "/thread/no-such-post").await;
 
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("No comments yet"));
+    assert!(!html.contains("class=\"stale-notice\""));
     assert!(html.contains("mailto:group@googlegroups.com?subject=no-such-post"));
 }
 
@@ -390,7 +394,7 @@ async fn rejects_a_comment_submission_when_relay_comments_is_disabled() {
 }
 
 #[tokio::test]
-async fn a_cold_cache_renders_empty_immediately() {
+async fn a_cold_cache_renders_a_checking_notice_rather_than_claiming_no_comments() {
     let app = router(state(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
@@ -401,7 +405,11 @@ async fn a_cold_cache_renders_empty_immediately() {
     let (status, html) = get_html(app, "/thread/my-post").await;
 
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("No comments yet"));
+    // A cold cache hasn't confirmed there's nothing there yet, so it must
+    // not claim "No comments yet" — that would be misleading if the thread
+    // actually has comments the first search just hasn't found yet.
+    assert!(!html.contains("No comments yet"));
+    assert!(html.contains("class=\"stale-notice\""));
 }
 
 #[tokio::test]
@@ -500,9 +508,10 @@ async fn a_background_refresh_populates_the_cache_for_a_later_request() {
     let cache = app_state.cache.clone();
     let app = router(app_state);
 
-    // Cold cache: kicks off a background refresh but renders empty for now.
+    // Cold cache: kicks off a background refresh but renders a checking
+    // notice for now, since it hasn't confirmed there's nothing there.
     let (_, first) = get_html(app.clone(), "/thread/my-post").await;
-    assert!(first.contains("No comments yet"));
+    assert!(first.contains("class=\"stale-notice\""));
 
     // Give the spawned refresh task a chance to run and write the cache.
     let mut entry = cache.get("my-post").unwrap();

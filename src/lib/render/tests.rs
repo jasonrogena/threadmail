@@ -141,6 +141,19 @@ fn empty_omits_the_form_when_relay_is_disabled() {
 }
 
 #[test]
+fn empty_does_not_claim_no_comments_while_stale() {
+    let mut stale = options(true, true);
+    stale.stale = true;
+
+    let html = empty("my-post", &stale);
+
+    assert!(!html.contains("No comments yet"));
+    assert!(html.contains("class=\"stale-notice\""));
+    // The form still offers to comment even while the search is unconfirmed.
+    assert!(html.contains("<form"));
+}
+
+#[test]
 fn shows_a_posted_notice_only_when_requested() {
     let thread = Thread {
         slug: "my-post".to_string(),
