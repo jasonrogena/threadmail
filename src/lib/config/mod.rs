@@ -58,6 +58,11 @@ fn auto_theme() -> String {
 pub struct Limits {
     pub max_concurrent_searches: usize,
     pub max_concurrent_submits: usize,
+    // How long a cached search result is served before a fresh IMAP search
+    // is triggered in the background.
+    pub cache_ttl_secs: u64,
+    // How often the rendered page reloads itself to check for new comments.
+    pub refresh_interval_secs: u64,
 }
 
 impl Default for Limits {
@@ -65,6 +70,8 @@ impl Default for Limits {
         Self {
             max_concurrent_searches: 8,
             max_concurrent_submits: 4,
+            cache_ttl_secs: 300,
+            refresh_interval_secs: 60,
         }
     }
 }

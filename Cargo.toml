@@ -1,6 +1,6 @@
 [package]
 name = "threadmail"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Static-site comments backed by a mailing list, not a database"
 license = "MIT"
@@ -21,6 +21,7 @@ imap = { version = "2.4.1", default-features = false }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "rustls-tls", "ring"] }
 mail-parser = "0.11.9"
 regex = "1.13.1"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"

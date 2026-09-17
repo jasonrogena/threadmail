@@ -34,9 +34,8 @@ posting_address = "our-comments@googlegroups.com"
 
 # Credentials for the bot account's own mailbox. The bot must be a normal
 # subscribed member of the mailing list, so every list message is delivered
-# here as a copy — no Google Groups API, no catch-all routing, and no
-# background poller: a thread is resolved fresh from this mailbox on every
-# request.
+# here as a copy — no Google Groups API, no catch-all routing. A thread is
+# searched for here in the background; see cache_ttl_secs below.
 [imap]
 host = "imap.gmail.com"
 port = 993
@@ -60,3 +59,14 @@ password = "an-app-password-not-the-account-password"
 [limits]
 max_concurrent_searches = 8
 max_concurrent_submits = 4
+
+# How long a page can be served from the local comment cache before a fresh
+# IMAP search is triggered in the background. Separate from
+# refresh_interval_secs below: every page check is a cache hit, but only
+# ones past this TTL trigger a search. The cache is in-memory and never
+# authoritative.
+# cache_ttl_secs = 300
+
+# How often (in seconds) the rendered page reloads itself to check for new
+# comments. Independent of cache_ttl_secs above.
+# refresh_interval_secs = 60

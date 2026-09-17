@@ -21,6 +21,7 @@ fn options(allow_relay: bool, show_email_link: bool) -> Options<'static> {
         show_email_link,
         theme: "auto",
         just_posted: false,
+        refresh_interval_secs: 60,
     }
 }
 
@@ -246,6 +247,40 @@ fn each_comment_gets_an_initial_avatar_and_an_anchor() {
 
     assert!(html.contains("id=\"c-root\""));
     assert!(html.contains("data-initial=\"A\""));
+}
+
+#[test]
+fn always_includes_a_periodic_refresh_tag() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+
+    assert!(
+        thread
+            .render(&options(true, true))
+            .contains("http-equiv=\"refresh\"")
+    );
+    assert!(empty("my-post", &options(true, true)).contains("http-equiv=\"refresh\""));
+}
+
+#[test]
+fn the_refresh_tag_uses_the_configured_interval() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut opts = options(true, true);
+    opts.refresh_interval_secs = 45;
+
+    assert!(thread.render(&opts).contains("content=\"45\""));
+    assert!(empty("my-post", &opts).contains("content=\"45\""));
 }
 
 #[test]

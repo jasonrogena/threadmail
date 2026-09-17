@@ -12,6 +12,7 @@ pub struct Options<'a> {
     pub show_email_link: bool,
     pub theme: &'a str,
     pub just_posted: bool,
+    pub refresh_interval_secs: u64,
 }
 
 #[derive(Template)]
@@ -29,6 +30,7 @@ struct ThreadTemplate<'a> {
     mailto_address: &'a str,
     show_email_link: bool,
     just_posted: bool,
+    refresh_interval_secs: u64,
 }
 
 #[derive(Template)]
@@ -40,6 +42,7 @@ struct EmptyTemplate<'a> {
     mailto_address: &'a str,
     show_email_link: bool,
     just_posted: bool,
+    refresh_interval_secs: u64,
 }
 
 #[derive(Template)]
@@ -77,6 +80,7 @@ impl Thread {
             mailto_address: options.mailto_address,
             show_email_link: options.show_email_link,
             just_posted: options.just_posted,
+            refresh_interval_secs: options.refresh_interval_secs,
         }
         .render()
         .expect("thread template is valid")
@@ -96,6 +100,7 @@ pub fn empty(slug: &str, options: &Options) -> String {
         mailto_address: options.mailto_address,
         show_email_link: options.show_email_link,
         just_posted: options.just_posted,
+        refresh_interval_secs: options.refresh_interval_secs,
     }
     .render()
     .expect("empty template is valid")

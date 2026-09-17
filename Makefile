@@ -1,12 +1,7 @@
 export RUST_BACKTRACE ?= 1
 export CARGO_BUILD_ARGS ?= --verbose --release
-# Deployed builds are static musl binaries (see .cargo/config.toml); this
-# defaults to the host's own arch so `make build` works the same on an
-# aarch64 or x86_64 dev machine without extra flags.
-export TARGET ?= $(shell uname -m)-unknown-linux-musl
 
 dependencies:
-	rustup target add ${TARGET}
 	rustup component add clippy
 	rustup component add rustfmt
 
@@ -21,5 +16,11 @@ test: dependencies
 fmt: dependencies
 	cargo fmt
 
+# A regular, dynamically-linked build for local dev/testing only. The
+# deployable artifact is a static musl binary and is only ever built by CI
+# (release.yml/dev-image.yml, via cross): that needs a real musl C
+# toolchain to compile rusqlite's bundled SQLite, which cross's own build
+# images provide but this host doesn't (cross's images are amd64-only and
+# don't run on this aarch64 machine either).
 build: dependencies
-	cargo build --target ${TARGET} ${CARGO_BUILD_ARGS}
+	cargo build ${CARGO_BUILD_ARGS}

@@ -5,6 +5,7 @@ use regex::Regex;
 use threadmail::config::{self, Config};
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
+use threadmail::sqlite_cache::SqliteCache;
 use threadmail::web::{AppState, router};
 use tracing::Level;
 
@@ -133,10 +134,17 @@ async fn serve(config_path: &str) {
             std::process::exit(1);
         }),
     );
+    let cache = Arc::new(SqliteCache::open_in_memory().unwrap_or_else(|err| {
+        tracing::error!(%err, "could not open the comment cache");
+        std::process::exit(1);
+    }));
 
     let state = AppState::new(
         source,
         sink,
+        cache,
+        config.limits.cache_ttl_secs,
+        config.limits.refresh_interval_secs,
         config.list.bot_address,
         config.list.posting_address,
         config.list.relay_comments,

@@ -20,3 +20,5 @@ password = "app-password"
 [limits]
 max_concurrent_searches = 20
 max_concurrent_submits = 2
+cache_ttl_secs = 30
+refresh_interval_secs = 90

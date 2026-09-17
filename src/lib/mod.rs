@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod compose;
 pub mod config;
 pub mod imap_source;
@@ -5,5 +6,6 @@ pub mod mail;
 pub mod render;
 pub mod smtp_sink;
 pub mod source;
+pub mod sqlite_cache;
 pub mod thread;
 pub mod web;

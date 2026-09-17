@@ -1,6 +1,8 @@
-# Static (musl) builds link with rust-lld so no target-specific gcc is
-# needed; ring's C objects are compiled with the host compiler for the
-# native-arch target (object code is libc-agnostic there).
+# Only relevant to a manual `cargo build --target *-musl` outside of CI.
+# ring's C objects are compiled with the host compiler for the native-arch
+# target (object code is libc-agnostic there), so rust-lld alone can link
+# them; this does NOT work for rusqlite's bundled SQLite, which needs a
+# real musl C toolchain (only CI's `cross` build images provide one).
 
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"

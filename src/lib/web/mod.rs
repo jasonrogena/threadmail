@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -12,6 +12,7 @@ use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
+use crate::cache::CommentCache;
 use crate::source::{MailSink, MailSource};
 use crate::{compose, render, thread};
 
@@ -25,6 +26,9 @@ const DEDUPE_WINDOW: Duration = Duration::from_secs(60);
 pub struct AppState {
     source: Arc<dyn MailSource>,
     sink: Arc<dyn MailSink>,
+    cache: Arc<dyn CommentCache>,
+    cache_ttl: Duration,
+    refresh_interval_secs: u64,
     bot_address: String,
     list_posting_address: String,
     relay_comments: bool,
@@ -34,6 +38,7 @@ pub struct AppState {
     search_limit: Arc<Semaphore>,
     submit_limit: Arc<Semaphore>,
     recent_submissions: Arc<Mutex<HashMap<u64, Instant>>>,
+    refreshing: Arc<Mutex<HashSet<String>>>,
 }
 
 impl AppState {
@@ -41,6 +46,9 @@ impl AppState {
     pub fn new(
         source: Arc<dyn MailSource>,
         sink: Arc<dyn MailSink>,
+        cache: Arc<dyn CommentCache>,
+        cache_ttl_secs: u64,
+        refresh_interval_secs: u64,
         bot_address: String,
         list_posting_address: String,
         relay_comments: bool,
@@ -53,6 +61,9 @@ impl AppState {
         Self {
             source,
             sink,
+            cache,
+            cache_ttl: Duration::from_secs(cache_ttl_secs),
+            refresh_interval_secs,
             bot_address,
             list_posting_address,
             relay_comments,
@@ -62,6 +73,7 @@ impl AppState {
             search_limit: Arc::new(Semaphore::new(max_concurrent_searches)),
             submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
             recent_submissions: Arc::new(Mutex::new(HashMap::new())),
+            refreshing: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -77,6 +89,7 @@ impl AppState {
             show_email_link: self.show_email_link,
             theme: &self.theme,
             just_posted,
+            refresh_interval_secs: self.refresh_interval_secs,
         }
     }
 }
@@ -115,40 +128,70 @@ pub struct ShowThreadQuery {
     posted: Option<String>,
 }
 
+// Kicks off a background IMAP search for `slug` if one isn't already
+// running, and returns immediately so the caller can render from cache.
+fn refresh_in_background(state: &AppState, slug: &str) {
+    let newly_started = state.refreshing.lock().unwrap().insert(slug.to_string());
+    if newly_started {
+        tokio::spawn(run_refresh(state.clone(), slug.to_string()));
+    }
+}
+
+async fn run_refresh(state: AppState, slug: String) {
+    let permit = match acquire(&state.search_limit).await {
+        Ok(permit) => permit,
+        Err(_) => {
+            state.refreshing.lock().unwrap().remove(&slug);
+            return;
+        }
+    };
+    let source = state.source.clone();
+    let search_slug = slug.clone();
+    let result = tokio::task::spawn_blocking(move || source.search_subject(&search_slug)).await;
+    drop(permit);
+
+    match result {
+        Ok(Ok(raw)) => {
+            if let Err(err) = state.cache.store(&slug, &raw) {
+                tracing::error!(%err, %slug, "failed to write the comment cache");
+            }
+        }
+        Ok(Err(err)) => {
+            tracing::error!(%err, %slug, "failed to search the mailbox for a thread");
+            let _ = state.cache.mark_refresh_attempted(&slug);
+        }
+        Err(err) => {
+            tracing::error!(%err, %slug, "the blocking IMAP search task panicked");
+            let _ = state.cache.mark_refresh_attempted(&slug);
+        }
+    }
+
+    state.refreshing.lock().unwrap().remove(&slug);
+}
+
 async fn show_thread(
     State(state): State<AppState>,
     Path(slug): Path<String>,
     Query(query): Query<ShowThreadQuery>,
 ) -> impl IntoResponse {
     let action = format!("/thread/{slug}");
+
+    let cached = state.cache.get(&slug).unwrap_or_else(|err| {
+        tracing::error!(%err, %slug, "failed to read the comment cache");
+        crate::cache::CacheEntry::empty()
+    });
+
+    if cached.is_stale(state.cache_ttl) {
+        refresh_in_background(&state, &slug);
+    }
+
     let options = state.render_options(&action, query.posted.is_some());
 
-    let raw = {
-        let _permit = match acquire(&state.search_limit).await {
-            Ok(permit) => permit,
-            Err(status) => return (status, "too busy, please try again").into_response(),
-        };
-        let source = state.source.clone();
-        let search_slug = slug.clone();
-        tokio::task::spawn_blocking(move || source.search_subject(&search_slug)).await
-    };
-
-    let raw = match raw {
-        Ok(Ok(raw)) => raw,
-        Ok(Err(err)) => {
-            tracing::error!(%err, %slug, "failed to search the mailbox for a thread");
-            return Html(render::empty(&slug, &options)).into_response();
-        }
-        Err(err) => {
-            tracing::error!(%err, %slug, "the blocking IMAP search task panicked");
-            return Html(render::empty(&slug, &options)).into_response();
-        }
-    };
-
-    let messages: Vec<_> = raw
-        .into_iter()
+    let messages: Vec<_> = cached
+        .raw_messages
+        .iter()
         .filter_map(|bytes| {
-            crate::mail::Message::parse(&bytes, state.body_footer_regex.as_ref()).ok()
+            crate::mail::Message::parse(bytes, state.body_footer_regex.as_ref()).ok()
         })
         .collect();
 
@@ -184,6 +227,10 @@ async fn submit_comment(
         return Redirect::to(&format!("/thread/{slug}?posted=1")).into_response();
     }
 
+    // Invalidated as soon as the write is accepted, not after it's relayed:
+    // the cache is wrong the moment we've committed to sending this comment.
+    let _ = state.cache.invalidate(&slug);
+
     let comment = compose::NewComment {
         name: &form.name,
         body: &form.body,
@@ -208,7 +255,10 @@ async fn submit_comment(
     };
 
     match result {
-        Ok(Ok(())) => Redirect::to(&format!("/thread/{slug}?posted=1")).into_response(),
+        Ok(Ok(())) => {
+            refresh_in_background(&state, &slug);
+            Redirect::to(&format!("/thread/{slug}?posted=1")).into_response()
+        }
         Ok(Err(err)) => {
             tracing::error!(%err, %slug, "failed to submit a comment to the mailing list");
             (
