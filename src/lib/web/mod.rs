@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -17,6 +19,7 @@ use crate::{compose, render, thread};
 mod tests;
 
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEDUPE_WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -30,6 +33,7 @@ pub struct AppState {
     body_footer_regex: Option<Regex>,
     search_limit: Arc<Semaphore>,
     submit_limit: Arc<Semaphore>,
+    recent_submissions: Arc<Mutex<HashMap<u64, Instant>>>,
 }
 
 impl AppState {
@@ -57,6 +61,7 @@ impl AppState {
             body_footer_regex,
             search_limit: Arc::new(Semaphore::new(max_concurrent_searches)),
             submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
+            recent_submissions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -81,6 +86,21 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/thread/{*slug}", get(show_thread).post(submit_comment))
         .with_state(state)
+}
+
+fn submission_key(slug: &str, in_reply_to: Option<&str>, name: &str, body: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (slug, in_reply_to, name, body).hash(&mut hasher);
+    hasher.finish()
+}
+
+// Guards against a slow request being re-clicked before it returns; there's
+// no JS here to disable the button after the first click.
+fn is_duplicate_submission(recent: &Mutex<HashMap<u64, Instant>>, key: u64) -> bool {
+    let mut recent = recent.lock().unwrap();
+    let now = Instant::now();
+    recent.retain(|_, seen_at| now.duration_since(*seen_at) < DEDUPE_WINDOW);
+    recent.insert(key, now).is_some()
 }
 
 async fn acquire(semaphore: &Semaphore) -> Result<SemaphorePermit<'_>, StatusCode> {
@@ -156,10 +176,16 @@ async fn submit_comment(
             .into_response();
     }
 
+    let in_reply_to = form.in_reply_to.as_deref().filter(|s| !s.is_empty());
+    let key = submission_key(&slug, in_reply_to, &form.name, &form.body);
+    if is_duplicate_submission(&state.recent_submissions, key) {
+        return Redirect::to(&format!("/thread/{slug}?posted=1")).into_response();
+    }
+
     let comment = compose::NewComment {
         name: &form.name,
         body: &form.body,
-        in_reply_to: form.in_reply_to.as_deref().filter(|s| !s.is_empty()),
+        in_reply_to,
     };
 
     let message = match compose::compose(

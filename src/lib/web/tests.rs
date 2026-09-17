@@ -191,6 +191,68 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
 }
 
 #[tokio::test]
+async fn repeated_identical_submissions_only_relay_once() {
+    let sink = Arc::new(FixtureSink::default());
+    let app = router(state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        sink.clone(),
+    ));
+
+    for _ in 0..3 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/thread/my-post")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(
+                        "name=Bob&body=I+agree&in_reply_to=root%40example.com",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+
+    assert_eq!(sink.sent.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_different_comment_after_a_duplicate_still_relays() {
+    let sink = Arc::new(FixtureSink::default());
+    let app = router(state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        sink.clone(),
+    ));
+
+    for body in [
+        "name=Bob&body=I+agree",
+        "name=Bob&body=I+agree",
+        "name=Bob&body=Actually+wait",
+    ] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/thread/my-post")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(sink.sent.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
     let sink = Arc::new(FixtureSink::default());
     let app = router(state(
