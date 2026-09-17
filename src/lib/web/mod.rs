@@ -4,7 +4,7 @@ use std::time::Duration;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Form, Router};
 use regex::Regex;
 use serde::Deserialize;
@@ -77,9 +77,9 @@ impl AppState {
 }
 
 pub fn router(state: AppState) -> Router {
+    // Wildcard: a slug can be a full post path (e.g. "posts/my-post").
     Router::new()
-        .route("/thread/{slug}", get(show_thread))
-        .route("/thread/{slug}/comment", post(submit_comment))
+        .route("/thread/{*slug}", get(show_thread).post(submit_comment))
         .with_state(state)
 }
 
@@ -100,7 +100,7 @@ async fn show_thread(
     Path(slug): Path<String>,
     Query(query): Query<ShowThreadQuery>,
 ) -> impl IntoResponse {
-    let action = format!("/thread/{slug}/comment");
+    let action = format!("/thread/{slug}");
     let options = state.render_options(&action, query.posted.is_some());
 
     let raw = {

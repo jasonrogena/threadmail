@@ -168,7 +168,7 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/thread/my-post/comment")
+                .uri("/thread/my-post")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(
                     "name=Bob&body=I+agree&in_reply_to=root%40example.com",
@@ -188,6 +188,40 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].display_name, "Bob (via web)");
     assert_eq!(sent[0].in_reply_to.as_deref(), Some("root@example.com"));
+}
+
+#[tokio::test]
+async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
+    let sink = Arc::new(FixtureSink::default());
+    let app = router(state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        sink.clone(),
+    ));
+
+    let (status, html) = get_html(app.clone(), "/thread/posts/2026-07-12-example").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("action=\"/thread/posts/2026-07-12-example\""));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/thread/posts/2026-07-12-example")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers().get("location").unwrap(),
+        "/thread/posts/2026-07-12-example?posted=1"
+    );
+    assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
