@@ -34,7 +34,7 @@ impl MailSink for FixtureSink {
         self.sent
             .lock()
             .unwrap()
-            .push(crate::mail::parse(&message.formatted(), None).unwrap());
+            .push(crate::mail::Message::parse(&message.formatted(), None).unwrap());
         Ok(())
     }
 }

@@ -21,39 +21,41 @@ pub struct Thread {
     pub root: Node,
 }
 
-pub fn resolve(slug: &str, mut messages: Vec<Message>) -> Result<Thread, Error> {
-    messages.sort_by_key(|m| m.sent_at.unwrap_or(i64::MAX));
+impl Thread {
+    pub fn resolve(slug: &str, mut messages: Vec<Message>) -> Result<Thread, Error> {
+        messages.sort_by_key(|m| m.sent_at.unwrap_or(i64::MAX));
 
-    let root_index = messages
-        .iter()
-        .position(|m| m.is_top_level() && m.subject == slug)
-        .ok_or(Error::NoRoot)?;
-    let root_message = messages.remove(root_index);
+        let root_index = messages
+            .iter()
+            .position(|m| m.is_top_level() && m.subject == slug)
+            .ok_or(Error::NoRoot)?;
+        let root_message = messages.remove(root_index);
 
-    let mut root_node = attach_replies(root_message, &mut messages);
+        let mut root_node = attach_replies(root_message, &mut messages);
 
-    // Attach stray messages missing threading headers by subject instead.
-    let mut i = 0;
-    while i < messages.len() {
-        if messages[i].subject.contains(slug) {
-            let stray = messages.remove(i);
-            root_node.replies.push(attach_replies(stray, &mut messages));
-        } else {
-            i += 1;
+        // Attach stray messages missing threading headers by subject instead.
+        let mut i = 0;
+        while i < messages.len() {
+            if messages[i].subject.contains(slug) {
+                let stray = messages.remove(i);
+                root_node.replies.push(attach_replies(stray, &mut messages));
+            } else {
+                i += 1;
+            }
         }
-    }
 
-    Ok(Thread {
-        slug: slug.to_string(),
-        root: root_node,
-    })
+        Ok(Thread {
+            slug: slug.to_string(),
+            root: root_node,
+        })
+    }
 }
 
 fn attach_replies(message: Message, remaining: &mut Vec<Message>) -> Node {
     let mut replies = Vec::new();
     let mut i = 0;
     while i < remaining.len() {
-        if replies_to(&remaining[i], &message) {
+        if remaining[i].replies_to(&message) {
             let child = remaining.remove(i);
             replies.push(child);
         } else {
@@ -67,9 +69,4 @@ fn attach_replies(message: Message, remaining: &mut Vec<Message>) -> Node {
         .collect();
 
     Node { message, replies }
-}
-
-fn replies_to(candidate: &Message, parent: &Message) -> bool {
-    candidate.in_reply_to.as_deref() == Some(parent.message_id.as_str())
-        || candidate.references.iter().any(|r| r == &parent.message_id)
 }

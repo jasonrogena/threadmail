@@ -1,7 +1,7 @@
 use super::*;
 
 fn round_trip(msg: &Message) -> crate::mail::Message {
-    crate::mail::parse(&msg.formatted(), None).unwrap()
+    crate::mail::Message::parse(&msg.formatted(), None).unwrap()
 }
 
 #[test]
@@ -11,13 +11,13 @@ fn top_level_comment_uses_the_bare_slug_as_subject() {
         body: "Great post!",
         in_reply_to: None,
     };
-    let msg = compose(
-        "my-first-post",
-        "bot@ourdomain.com",
-        "group@googlegroups.com",
-        &comment,
-    )
-    .unwrap();
+    let msg = comment
+        .compose(
+            "my-first-post",
+            "bot@ourdomain.com",
+            "group@googlegroups.com",
+        )
+        .unwrap();
     let parsed = round_trip(&msg);
 
     assert_eq!(parsed.subject, "my-first-post");
@@ -33,13 +33,13 @@ fn reply_carries_in_reply_to_and_references() {
         body: "I agree!",
         in_reply_to: Some("root@example.com"),
     };
-    let msg = compose(
-        "my-first-post",
-        "bot@ourdomain.com",
-        "group@googlegroups.com",
-        &comment,
-    )
-    .unwrap();
+    let msg = comment
+        .compose(
+            "my-first-post",
+            "bot@ourdomain.com",
+            "group@googlegroups.com",
+        )
+        .unwrap();
     let parsed = round_trip(&msg);
 
     assert_eq!(parsed.subject, "Re: my-first-post");
@@ -54,13 +54,13 @@ fn never_includes_a_real_commenter_address_because_none_is_collected() {
         body: "no address was ever asked for",
         in_reply_to: None,
     };
-    let msg = compose(
-        "my-first-post",
-        "bot@ourdomain.com",
-        "group@googlegroups.com",
-        &comment,
-    )
-    .unwrap();
+    let msg = comment
+        .compose(
+            "my-first-post",
+            "bot@ourdomain.com",
+            "group@googlegroups.com",
+        )
+        .unwrap();
     let raw = String::from_utf8(msg.formatted()).unwrap();
 
     assert!(raw.contains("bot@ourdomain.com"));

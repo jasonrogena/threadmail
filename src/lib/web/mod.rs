@@ -147,11 +147,13 @@ async fn show_thread(
 
     let messages: Vec<_> = raw
         .into_iter()
-        .filter_map(|bytes| crate::mail::parse(&bytes, state.body_footer_regex.as_ref()).ok())
+        .filter_map(|bytes| {
+            crate::mail::Message::parse(&bytes, state.body_footer_regex.as_ref()).ok()
+        })
         .collect();
 
-    match thread::resolve(&slug, messages) {
-        Ok(resolved) => Html(render::render(&resolved, &options)).into_response(),
+    match thread::Thread::resolve(&slug, messages) {
+        Ok(resolved) => Html(resolved.render(&options)).into_response(),
         Err(_) => Html(render::empty(&slug, &options)).into_response(),
     }
 }
@@ -188,12 +190,7 @@ async fn submit_comment(
         in_reply_to,
     };
 
-    let message = match compose::compose(
-        &slug,
-        &state.bot_address,
-        &state.list_posting_address,
-        &comment,
-    ) {
+    let message = match comment.compose(&slug, &state.bot_address, &state.list_posting_address) {
         Ok(message) => message,
         Err(err) => {
             tracing::warn!(%err, %slug, "rejected a malformed comment submission");

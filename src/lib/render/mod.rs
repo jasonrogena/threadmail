@@ -67,18 +67,20 @@ fn style(theme: &str) -> String {
         .expect("style template is valid")
 }
 
-pub fn render(thread: &Thread, options: &Options) -> String {
-    let root_html = render_node(&thread.root, options);
-    ThreadTemplate {
-        slug: &thread.slug,
-        style_html: style(options.theme),
-        root_html,
-        mailto_address: options.mailto_address,
-        show_email_link: options.show_email_link,
-        just_posted: options.just_posted,
+impl Thread {
+    pub fn render(&self, options: &Options) -> String {
+        let root_html = self.root.render(options);
+        ThreadTemplate {
+            slug: &self.slug,
+            style_html: style(options.theme),
+            root_html,
+            mailto_address: options.mailto_address,
+            show_email_link: options.show_email_link,
+            just_posted: options.just_posted,
+        }
+        .render()
+        .expect("thread template is valid")
     }
-    .render()
-    .expect("thread template is valid")
 }
 
 pub fn empty(slug: &str, options: &Options) -> String {
@@ -99,28 +101,26 @@ pub fn empty(slug: &str, options: &Options) -> String {
     .expect("empty template is valid")
 }
 
-fn render_node(node: &Node, options: &Options) -> String {
-    let form_html = if options.allow_relay {
-        comment_form(options.comment_action, &node.message.message_id, "Reply")
-    } else {
-        String::new()
-    };
-    let replies_html = node
-        .replies
-        .iter()
-        .map(|r| render_node(r, options))
-        .collect();
+impl Node {
+    fn render(&self, options: &Options) -> String {
+        let form_html = if options.allow_relay {
+            comment_form(options.comment_action, &self.message.message_id, "Reply")
+        } else {
+            String::new()
+        };
+        let replies_html = self.replies.iter().map(|r| r.render(options)).collect();
 
-    CommentTemplate {
-        id: &node.message.message_id,
-        initial: initial(&node.message.display_name),
-        display_name: &node.message.display_name,
-        body_html: escape_paragraphs(&node.message.body),
-        form_html,
-        replies_html,
+        CommentTemplate {
+            id: &self.message.message_id,
+            initial: initial(&self.message.display_name),
+            display_name: &self.message.display_name,
+            body_html: escape_paragraphs(&self.message.body),
+            form_html,
+            replies_html,
+        }
+        .render()
+        .expect("comment template is valid")
     }
-    .render()
-    .expect("comment template is valid")
 }
 
 fn comment_form(action: &str, in_reply_to: &str, label: &str) -> String {

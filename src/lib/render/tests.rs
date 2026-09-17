@@ -34,7 +34,7 @@ fn escapes_attacker_controlled_content() {
         },
     };
 
-    let html = render(&thread, &options(true, true));
+    let html = thread.render(&options(true, true));
 
     assert!(!html.contains("<script>"));
     assert!(html.contains("&#60;script&#62;"));
@@ -54,7 +54,7 @@ fn nests_replies_and_carries_message_id_for_threaded_replies() {
         },
     };
 
-    let html = render(&thread, &options(true, true));
+    let html = thread.render(&options(true, true));
 
     assert!(html.contains("<ol class=\"replies\">"));
     assert!(html.contains("value=\"root\""));
@@ -71,7 +71,7 @@ fn includes_a_mailto_hint_with_the_slug_as_subject() {
         },
     };
 
-    let html = render(&thread, &options(true, true));
+    let html = thread.render(&options(true, true));
 
     assert!(html.contains("mailto:group@example.com?subject=my-post"));
 }
@@ -86,7 +86,7 @@ fn never_renders_a_real_email_address_for_a_commenter() {
         },
     };
 
-    let html = render(&thread, &options(true, true));
+    let html = thread.render(&options(true, true));
 
     assert!(html.contains("Alice"));
 }
@@ -101,7 +101,7 @@ fn omits_comment_forms_when_relay_is_disabled() {
         },
     };
 
-    let html = render(&thread, &options(false, true));
+    let html = thread.render(&options(false, true));
 
     assert!(!html.contains("<form"));
     assert!(html.contains("mailto:"));
@@ -117,7 +117,7 @@ fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
         },
     };
 
-    let html = render(&thread, &options(true, false));
+    let html = thread.render(&options(true, false));
 
     assert!(html.contains("<form"));
     assert!(!html.contains("mailto:"));
@@ -150,8 +150,12 @@ fn shows_a_posted_notice_only_when_requested() {
     let mut posted = options(true, true);
     posted.just_posted = true;
 
-    assert!(render(&thread, &posted).contains("class=\"posted-notice\""));
-    assert!(!render(&thread, &options(true, true)).contains("class=\"posted-notice\""));
+    assert!(thread.render(&posted).contains("class=\"posted-notice\""));
+    assert!(
+        !thread
+            .render(&options(true, true))
+            .contains("class=\"posted-notice\"")
+    );
     assert!(empty("my-post", &posted).contains("class=\"posted-notice\""));
     assert!(!empty("my-post", &options(true, true)).contains("class=\"posted-notice\""));
 }
@@ -166,7 +170,7 @@ fn reply_form_is_collapsed_by_default() {
         },
     };
 
-    let html = render(&thread, &options(true, true));
+    let html = thread.render(&options(true, true));
 
     assert!(html.contains("<details class=\"reply-toggle\">"));
     assert!(!html.contains("<details class=\"reply-toggle\" open"));
@@ -185,7 +189,7 @@ fn auto_theme_defers_to_the_device_via_media_query() {
     let mut opts = options(true, true);
     opts.theme = "auto";
 
-    let html = render(&thread, &opts);
+    let html = thread.render(&opts);
 
     assert!(html.contains("color-scheme: light dark;"));
     assert!(html.contains("@media (prefers-color-scheme: dark)"));
@@ -203,7 +207,7 @@ fn light_theme_is_forced_regardless_of_device() {
     let mut opts = options(true, true);
     opts.theme = "light";
 
-    let html = render(&thread, &opts);
+    let html = thread.render(&opts);
 
     assert!(html.contains("color-scheme: light;"));
     assert!(!html.contains("@media (prefers-color-scheme: dark)"));
@@ -221,7 +225,7 @@ fn dark_theme_is_forced_regardless_of_device() {
     let mut opts = options(true, true);
     opts.theme = "dark";
 
-    let html = render(&thread, &opts);
+    let html = thread.render(&opts);
 
     assert!(html.contains("color-scheme: dark;"));
     assert!(html.contains("--tm-bg: #0f172a;"));
@@ -238,7 +242,7 @@ fn each_comment_gets_an_initial_avatar_and_an_anchor() {
         },
     };
 
-    let html = render(&thread, &options(true, true));
+    let html = thread.render(&options(true, true));
 
     assert!(html.contains("id=\"c-root\""));
     assert!(html.contains("data-initial=\"A\""));
@@ -254,7 +258,7 @@ fn escapes_the_slug_in_both_render_and_empty() {
         },
     };
 
-    assert!(!render(&thread, &options(true, true)).contains("<script>"));
+    assert!(!thread.render(&options(true, true)).contains("<script>"));
     assert!(
         !empty("<script>", &options(true, true))
             .contains("<section class=\"thread\" data-slug=\"<script>\"")
