@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, post};
@@ -26,6 +26,7 @@ pub struct AppState {
     list_posting_address: String,
     relay_comments: bool,
     show_email_link: bool,
+    theme: String,
     body_footer_regex: Option<Regex>,
     search_limit: Arc<Semaphore>,
     submit_limit: Arc<Semaphore>,
@@ -40,6 +41,7 @@ impl AppState {
         list_posting_address: String,
         relay_comments: bool,
         show_email_link: bool,
+        theme: String,
         body_footer_regex: Option<Regex>,
         max_concurrent_searches: usize,
         max_concurrent_submits: usize,
@@ -51,18 +53,25 @@ impl AppState {
             list_posting_address,
             relay_comments,
             show_email_link,
+            theme,
             body_footer_regex,
             search_limit: Arc::new(Semaphore::new(max_concurrent_searches)),
             submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
         }
     }
 
-    fn render_options<'a>(&'a self, comment_action: &'a str) -> render::Options<'a> {
+    fn render_options<'a>(
+        &'a self,
+        comment_action: &'a str,
+        just_posted: bool,
+    ) -> render::Options<'a> {
         render::Options {
             comment_action,
             mailto_address: &self.list_posting_address,
             allow_relay: self.relay_comments,
             show_email_link: self.show_email_link,
+            theme: &self.theme,
+            just_posted,
         }
     }
 }
@@ -81,9 +90,18 @@ async fn acquire(semaphore: &Semaphore) -> Result<SemaphorePermit<'_>, StatusCod
         .map(|permit| permit.expect("semaphore is never closed"))
 }
 
-async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) -> impl IntoResponse {
+#[derive(Debug, Deserialize)]
+pub struct ShowThreadQuery {
+    posted: Option<String>,
+}
+
+async fn show_thread(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(query): Query<ShowThreadQuery>,
+) -> impl IntoResponse {
     let action = format!("/thread/{slug}/comment");
-    let options = state.render_options(&action);
+    let options = state.render_options(&action, query.posted.is_some());
 
     let raw = {
         let _permit = match acquire(&state.search_limit).await {
@@ -167,7 +185,7 @@ async fn submit_comment(
     };
 
     match result {
-        Ok(Ok(())) => Redirect::to(&format!("/thread/{slug}")).into_response(),
+        Ok(Ok(())) => Redirect::to(&format!("/thread/{slug}?posted=1")).into_response(),
         Ok(Err(err)) => {
             tracing::error!(%err, %slug, "failed to submit a comment to the mailing list");
             (

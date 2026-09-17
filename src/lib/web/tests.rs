@@ -56,6 +56,7 @@ fn state_with(
         "group@googlegroups.com".to_string(),
         relay_comments,
         show_email_link,
+        "auto".to_string(),
         None,
         8,
         4,
@@ -180,13 +181,29 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         response.headers().get("location").unwrap(),
-        "/thread/my-post"
+        "/thread/my-post?posted=1"
     );
 
     let sent = sink.sent.lock().unwrap();
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].display_name, "Bob (via web)");
     assert_eq!(sent[0].in_reply_to.as_deref(), Some("root@example.com"));
+}
+
+#[tokio::test]
+async fn shows_a_posted_notice_only_when_the_query_param_is_present() {
+    let app = router(state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        Arc::new(FixtureSink::default()),
+    ));
+
+    let (_, plain) = get_html(app.clone(), "/thread/my-post").await;
+    let (_, posted) = get_html(app, "/thread/my-post?posted=1").await;
+
+    assert!(!plain.contains("class=\"posted-notice\""));
+    assert!(posted.contains("class=\"posted-notice\""));
 }
 
 #[tokio::test]

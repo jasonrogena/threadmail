@@ -107,6 +107,14 @@ async fn serve(config_path: &str) {
         )
     };
 
+    if !["auto", "light", "dark"].contains(&config.list.theme.as_str()) {
+        tracing::error!(
+            theme = config.list.theme,
+            "list.theme must be auto, light, or dark"
+        );
+        std::process::exit(1);
+    }
+
     let source = Arc::new(ImapSource::new(
         config.imap.host,
         config.imap.port,
@@ -133,6 +141,7 @@ async fn serve(config_path: &str) {
         config.list.posting_address,
         config.list.relay_comments,
         config.list.show_email_link,
+        config.list.theme,
         body_footer_regex,
         config.limits.max_concurrent_searches,
         config.limits.max_concurrent_submits,

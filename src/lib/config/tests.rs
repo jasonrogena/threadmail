@@ -14,6 +14,7 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     let config = Config::load("tests/configs/good.toml").unwrap();
     assert!(config.list.relay_comments);
     assert!(config.list.show_email_link);
+    assert_eq!(config.list.theme, "auto");
     assert_eq!(config.limits.max_concurrent_searches, 8);
     assert_eq!(config.limits.max_concurrent_submits, 4);
 }

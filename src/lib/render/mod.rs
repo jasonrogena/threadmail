@@ -10,24 +10,36 @@ pub struct Options<'a> {
     pub mailto_address: &'a str,
     pub allow_relay: bool,
     pub show_email_link: bool,
+    pub theme: &'a str,
+    pub just_posted: bool,
+}
+
+#[derive(Template)]
+#[template(path = "style.html")]
+struct StyleTemplate<'a> {
+    theme: &'a str,
 }
 
 #[derive(Template)]
 #[template(path = "thread.html")]
 struct ThreadTemplate<'a> {
     slug: &'a str,
+    style_html: String,
     root_html: String,
     mailto_address: &'a str,
     show_email_link: bool,
+    just_posted: bool,
 }
 
 #[derive(Template)]
 #[template(path = "empty.html")]
 struct EmptyTemplate<'a> {
     slug: &'a str,
+    style_html: String,
     form_html: String,
     mailto_address: &'a str,
     show_email_link: bool,
+    just_posted: bool,
 }
 
 #[derive(Template)]
@@ -49,13 +61,21 @@ struct CommentFormTemplate<'a> {
     label: &'a str,
 }
 
+fn style(theme: &str) -> String {
+    StyleTemplate { theme }
+        .render()
+        .expect("style template is valid")
+}
+
 pub fn render(thread: &Thread, options: &Options) -> String {
     let root_html = render_node(&thread.root, options);
     ThreadTemplate {
         slug: &thread.slug,
+        style_html: style(options.theme),
         root_html,
         mailto_address: options.mailto_address,
         show_email_link: options.show_email_link,
+        just_posted: options.just_posted,
     }
     .render()
     .expect("thread template is valid")
@@ -69,9 +89,11 @@ pub fn empty(slug: &str, options: &Options) -> String {
     };
     EmptyTemplate {
         slug,
+        style_html: style(options.theme),
         form_html,
         mailto_address: options.mailto_address,
         show_email_link: options.show_email_link,
+        just_posted: options.just_posted,
     }
     .render()
     .expect("empty template is valid")

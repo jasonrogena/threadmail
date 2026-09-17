@@ -1,5 +1,8 @@
-{% include "style.html" %}
+{{ style_html|safe }}
 <section class="thread" data-slug="{{ slug }}">
+{% if just_posted %}
+<p class="posted-notice">Thanks! Your comment was submitted and may take a few moments to appear here.</p>
+{% endif %}
 {{ root_html|safe }}
 {% if show_email_link %}
 <p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ slug|urlencode }}">Comment by email</a></p>

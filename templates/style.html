@@ -1,6 +1,17 @@
 <style>
 :root {
-  color-scheme: light dark;
+  {% if theme == "dark" %}
+  color-scheme: dark;
+  --tm-bg: #0f172a;
+  --tm-fg: #e2e8f0;
+  --tm-muted: #94a3b8;
+  --tm-border: #263449;
+  --tm-accent: #60a5fa;
+  --tm-card-bg: #111c30;
+  --tm-avatar-bg: #263449;
+  --tm-avatar-fg: #cbd5e1;
+  {% else %}
+  color-scheme: {% if theme == "light" %}light{% else %}light dark{% endif %};
   --tm-bg: #ffffff;
   --tm-fg: #1a1a1a;
   --tm-muted: #6b7280;
@@ -9,7 +20,9 @@
   --tm-card-bg: #f9fafb;
   --tm-avatar-bg: #e5e7eb;
   --tm-avatar-fg: #374151;
+  {% endif %}
 }
+{% if theme == "auto" %}
 @media (prefers-color-scheme: dark) {
   :root {
     --tm-bg: #0f172a;
@@ -22,6 +35,7 @@
     --tm-avatar-fg: #cbd5e1;
   }
 }
+{% endif %}
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--tm-bg); }
 body {
@@ -95,6 +109,14 @@ body {
   cursor: pointer;
 }
 .empty-state { color: var(--tm-muted); }
+.posted-notice {
+  background: var(--tm-card-bg);
+  border: 1px solid var(--tm-border);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
 .email-hint { margin-top: 1rem; font-size: 0.8rem; color: var(--tm-muted); }
 .email-hint a { color: inherit; }
 </style>

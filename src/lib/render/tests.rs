@@ -19,6 +19,8 @@ fn options(allow_relay: bool, show_email_link: bool) -> Options<'static> {
         mailto_address: "group@example.com",
         allow_relay,
         show_email_link,
+        theme: "auto",
+        just_posted: false,
     }
 }
 
@@ -137,6 +139,24 @@ fn empty_omits_the_form_when_relay_is_disabled() {
 }
 
 #[test]
+fn shows_a_posted_notice_only_when_requested() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut posted = options(true, true);
+    posted.just_posted = true;
+
+    assert!(render(&thread, &posted).contains("class=\"posted-notice\""));
+    assert!(!render(&thread, &options(true, true)).contains("class=\"posted-notice\""));
+    assert!(empty("my-post", &posted).contains("class=\"posted-notice\""));
+    assert!(!empty("my-post", &options(true, true)).contains("class=\"posted-notice\""));
+}
+
+#[test]
 fn reply_form_is_collapsed_by_default() {
     let thread = Thread {
         slug: "my-post".to_string(),
@@ -151,6 +171,61 @@ fn reply_form_is_collapsed_by_default() {
     assert!(html.contains("<details class=\"reply-toggle\">"));
     assert!(!html.contains("<details class=\"reply-toggle\" open"));
     assert!(!html.contains("<details open"));
+}
+
+#[test]
+fn auto_theme_defers_to_the_device_via_media_query() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut opts = options(true, true);
+    opts.theme = "auto";
+
+    let html = render(&thread, &opts);
+
+    assert!(html.contains("color-scheme: light dark;"));
+    assert!(html.contains("@media (prefers-color-scheme: dark)"));
+}
+
+#[test]
+fn light_theme_is_forced_regardless_of_device() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut opts = options(true, true);
+    opts.theme = "light";
+
+    let html = render(&thread, &opts);
+
+    assert!(html.contains("color-scheme: light;"));
+    assert!(!html.contains("@media (prefers-color-scheme: dark)"));
+}
+
+#[test]
+fn dark_theme_is_forced_regardless_of_device() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut opts = options(true, true);
+    opts.theme = "dark";
+
+    let html = render(&thread, &opts);
+
+    assert!(html.contains("color-scheme: dark;"));
+    assert!(html.contains("--tm-bg: #0f172a;"));
+    assert!(!html.contains("@media (prefers-color-scheme: dark)"));
 }
 
 #[test]

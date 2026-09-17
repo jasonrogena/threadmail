@@ -44,6 +44,13 @@ pub struct ListConfig {
     // Everything from the first match onward is stripped from bodies; empty disables it.
     #[serde(default)]
     pub body_footer_regex: String,
+    // "auto" (follow the visitor's device), "light", or "dark".
+    #[serde(default = "auto_theme")]
+    pub theme: String,
+}
+
+fn auto_theme() -> String {
+    "auto".to_string()
 }
 
 #[derive(Debug, Deserialize)]
