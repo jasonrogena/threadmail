@@ -18,7 +18,7 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert_eq!(config.limits.max_concurrent_searches, 8);
     assert_eq!(config.limits.max_concurrent_submits, 4);
     assert_eq!(config.limits.cache_ttl_secs, 300);
-    assert_eq!(config.limits.refresh_interval_secs, 60);
+    assert_eq!(config.limits.refresh_interval_secs, 30);
 }
 
 #[test]

@@ -13,6 +13,7 @@ pub struct Options<'a> {
     pub theme: &'a str,
     pub just_posted: bool,
     pub refresh_interval_secs: u64,
+    pub stale: bool,
 }
 
 #[derive(Template)]
@@ -31,6 +32,8 @@ struct ThreadTemplate<'a> {
     show_email_link: bool,
     just_posted: bool,
     refresh_interval_secs: u64,
+    stale: bool,
+    page_url: &'a str,
 }
 
 #[derive(Template)]
@@ -43,6 +46,8 @@ struct EmptyTemplate<'a> {
     show_email_link: bool,
     just_posted: bool,
     refresh_interval_secs: u64,
+    stale: bool,
+    page_url: &'a str,
 }
 
 #[derive(Template)]
@@ -81,6 +86,8 @@ impl Thread {
             show_email_link: options.show_email_link,
             just_posted: options.just_posted,
             refresh_interval_secs: options.refresh_interval_secs,
+            stale: options.stale,
+            page_url: options.comment_action,
         }
         .render()
         .expect("thread template is valid")
@@ -101,6 +108,8 @@ pub fn empty(slug: &str, options: &Options) -> String {
         show_email_link: options.show_email_link,
         just_posted: options.just_posted,
         refresh_interval_secs: options.refresh_interval_secs,
+        stale: options.stale,
+        page_url: options.comment_action,
     }
     .render()
     .expect("empty template is valid")

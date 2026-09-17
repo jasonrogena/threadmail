@@ -69,4 +69,4 @@ max_concurrent_submits = 4
 
 # How often (in seconds) the rendered page reloads itself to check for new
 # comments. Independent of cache_ttl_secs above.
-# refresh_interval_secs = 60
+# refresh_interval_secs = 30

@@ -22,6 +22,7 @@ fn options(allow_relay: bool, show_email_link: bool) -> Options<'static> {
         theme: "auto",
         just_posted: false,
         refresh_interval_secs: 60,
+        stale: false,
     }
 }
 
@@ -162,6 +163,28 @@ fn shows_a_posted_notice_only_when_requested() {
 }
 
 #[test]
+fn a_just_posted_reload_targets_the_clean_url_so_the_notice_clears_itself() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut posted = options(true, true);
+    posted.just_posted = true;
+
+    assert!(
+        thread
+            .render(&posted)
+            .contains(";url=/thread/my-post/comment")
+    );
+    assert!(!thread.render(&options(true, true)).contains(";url="));
+    assert!(empty("my-post", &posted).contains(";url=/thread/my-post/comment"));
+    assert!(!empty("my-post", &options(true, true)).contains(";url="));
+}
+
+#[test]
 fn reply_form_is_collapsed_by_default() {
     let thread = Thread {
         slug: "my-post".to_string(),
@@ -281,6 +304,28 @@ fn the_refresh_tag_uses_the_configured_interval() {
 
     assert!(thread.render(&opts).contains("content=\"45\""));
     assert!(empty("my-post", &opts).contains("content=\"45\""));
+}
+
+#[test]
+fn shows_a_stale_notice_only_when_the_content_is_past_its_ttl() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut stale = options(true, true);
+    stale.stale = true;
+
+    assert!(thread.render(&stale).contains("class=\"stale-notice\""));
+    assert!(
+        !thread
+            .render(&options(true, true))
+            .contains("class=\"stale-notice\"")
+    );
+    assert!(empty("my-post", &stale).contains("class=\"stale-notice\""));
+    assert!(!empty("my-post", &options(true, true)).contains("class=\"stale-notice\""));
 }
 
 #[test]

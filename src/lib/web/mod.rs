@@ -81,6 +81,7 @@ impl AppState {
         &'a self,
         comment_action: &'a str,
         just_posted: bool,
+        stale: bool,
     ) -> render::Options<'a> {
         render::Options {
             comment_action,
@@ -90,6 +91,7 @@ impl AppState {
             theme: &self.theme,
             just_posted,
             refresh_interval_secs: self.refresh_interval_secs,
+            stale,
         }
     }
 }
@@ -181,11 +183,12 @@ async fn show_thread(
         crate::cache::CacheEntry::empty()
     });
 
-    if cached.is_stale(state.cache_ttl) {
+    let stale = cached.is_stale(state.cache_ttl);
+    if stale {
         refresh_in_background(&state, &slug);
     }
 
-    let options = state.render_options(&action, query.posted.is_some());
+    let options = state.render_options(&action, query.posted.is_some(), stale);
 
     let messages: Vec<_> = cached
         .raw_messages

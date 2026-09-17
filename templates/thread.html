@@ -1,6 +1,9 @@
-<meta http-equiv="refresh" content="{{ refresh_interval_secs }}">
+<meta http-equiv="refresh" content="{{ refresh_interval_secs }}{% if just_posted %};url={{ page_url }}{% endif %}">
 {{ style_html|safe }}
 <section class="thread" data-slug="{{ slug }}">
+{% if stale %}
+<p class="stale-notice">Checking for new comments&hellip;</p>
+{% endif %}
 {% if just_posted %}
 <p class="posted-notice">Thanks! Your comment was submitted and may take a few moments to appear here.</p>
 {% endif %}

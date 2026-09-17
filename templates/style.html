@@ -109,6 +109,27 @@ body {
   cursor: pointer;
 }
 .empty-state { color: var(--tm-muted); }
+.stale-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--tm-muted);
+  font-size: 0.8rem;
+  margin: 0 0 0.75rem;
+}
+.stale-notice::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--tm-accent);
+  animation: tm-stale-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tm-stale-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
 .posted-notice {
   background: var(--tm-card-bg);
   border: 1px solid var(--tm-border);

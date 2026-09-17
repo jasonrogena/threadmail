@@ -71,7 +71,7 @@ impl Default for Limits {
             max_concurrent_searches: 8,
             max_concurrent_submits: 4,
             cache_ttl_secs: 300,
-            refresh_interval_secs: 60,
+            refresh_interval_secs: 30,
         }
     }
 }

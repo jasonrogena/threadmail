@@ -344,6 +344,24 @@ async fn shows_a_posted_notice_only_when_the_query_param_is_present() {
 }
 
 #[tokio::test]
+async fn the_posted_page_reloads_itself_to_the_clean_url_so_the_notice_clears() {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        Arc::new(FixtureSink::default()),
+    );
+    seed(&app_state, "my-post", &[ROOT.to_vec()]);
+    let app = router(app_state);
+
+    let (_, plain) = get_html(app.clone(), "/thread/my-post").await;
+    let (_, posted) = get_html(app, "/thread/my-post?posted=1").await;
+
+    assert!(!plain.contains(";url="));
+    assert!(posted.contains(";url=/thread/my-post\""));
+}
+
+#[tokio::test]
 async fn rejects_a_comment_submission_when_relay_comments_is_disabled() {
     let sink = Arc::new(FixtureSink::default());
     let app = router(state_with(
@@ -410,6 +428,36 @@ async fn the_page_always_carries_a_periodic_refresh_tag_regardless_of_cache_fres
 
     assert!(fresh.contains("http-equiv=\"refresh\""));
     assert!(cold.contains("http-equiv=\"refresh\""));
+}
+
+#[tokio::test]
+async fn a_stale_notice_shows_only_for_content_past_the_cache_ttl() {
+    let fresh_state = state_with_ttl(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        Arc::new(FixtureSink::default()),
+        true,
+        true,
+        NO_REFRESH_NEEDED,
+    );
+    seed(&fresh_state, "my-post", &[ROOT.to_vec()]);
+    let (_, fresh) = get_html(router(fresh_state), "/thread/my-post").await;
+
+    let stale_state = state_with_ttl(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        Arc::new(FixtureSink::default()),
+        true,
+        true,
+        0,
+    );
+    seed(&stale_state, "my-post", &[ROOT.to_vec()]);
+    let (_, stale) = get_html(router(stale_state), "/thread/my-post").await;
+
+    assert!(!fresh.contains("class=\"stale-notice\""));
+    assert!(stale.contains("class=\"stale-notice\""));
 }
 
 #[tokio::test]
