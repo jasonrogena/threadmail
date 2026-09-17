@@ -1,0 +1,9 @@
+<details class="reply-toggle">
+<summary>{{ label }}</summary>
+<form method="post" action="{{ action }}">
+<input type="hidden" name="in_reply_to" value="{{ in_reply_to }}">
+<label>Name <input type="text" name="name" required></label>
+<label>Comment <textarea name="body" required></textarea></label>
+<button type="submit">Post</button>
+</form>
+</details>

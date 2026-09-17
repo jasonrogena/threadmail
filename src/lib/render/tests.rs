@@ -35,7 +35,7 @@ fn escapes_attacker_controlled_content() {
     let html = render(&thread, &options(true, true));
 
     assert!(!html.contains("<script>"));
-    assert!(html.contains("&lt;script&gt;"));
+    assert!(html.contains("&#60;script&#62;"));
     assert!(html.contains("&quot;world&quot;"));
 }
 
@@ -134,6 +134,39 @@ fn empty_omits_the_form_when_relay_is_disabled() {
     let html = empty("my-post", &options(false, true));
 
     assert!(!html.contains("<form"));
+}
+
+#[test]
+fn reply_form_is_collapsed_by_default() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+
+    let html = render(&thread, &options(true, true));
+
+    assert!(html.contains("<details class=\"reply-toggle\">"));
+    assert!(!html.contains("<details class=\"reply-toggle\" open"));
+    assert!(!html.contains("<details open"));
+}
+
+#[test]
+fn each_comment_gets_an_initial_avatar_and_an_anchor() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+
+    let html = render(&thread, &options(true, true));
+
+    assert!(html.contains("id=\"c-root\""));
+    assert!(html.contains("data-initial=\"A\""));
 }
 
 #[test]

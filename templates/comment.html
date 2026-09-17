@@ -1,0 +1,15 @@
+<article class="comment" id="c-{{ id }}">
+<div class="comment-meta">
+<span class="avatar" data-initial="{{ initial }}" aria-hidden="true"></span>
+<span class="comment-author">{{ display_name }}</span>
+</div>
+<div class="comment-body">{{ body_html|safe }}</div>
+{{ form_html|safe }}
+{% if !replies_html.is_empty() %}
+<ol class="replies">
+{% for reply in replies_html %}
+<li>{{ reply|safe }}</li>
+{% endfor %}
+</ol>
+{% endif %}
+</article>

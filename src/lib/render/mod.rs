@@ -1,3 +1,5 @@
+use askama::Template;
+
 use crate::thread::{Node, Thread};
 
 #[cfg(test)]
@@ -10,86 +12,110 @@ pub struct Options<'a> {
     pub show_email_link: bool,
 }
 
+#[derive(Template)]
+#[template(path = "thread.html")]
+struct ThreadTemplate<'a> {
+    slug: &'a str,
+    root_html: String,
+    mailto_address: &'a str,
+    show_email_link: bool,
+}
+
+#[derive(Template)]
+#[template(path = "empty.html")]
+struct EmptyTemplate<'a> {
+    slug: &'a str,
+    form_html: String,
+    mailto_address: &'a str,
+    show_email_link: bool,
+}
+
+#[derive(Template)]
+#[template(path = "comment.html")]
+struct CommentTemplate<'a> {
+    id: &'a str,
+    initial: String,
+    display_name: &'a str,
+    body_html: String,
+    form_html: String,
+    replies_html: Vec<String>,
+}
+
+#[derive(Template)]
+#[template(path = "comment_form.html")]
+struct CommentFormTemplate<'a> {
+    action: &'a str,
+    in_reply_to: &'a str,
+    label: &'a str,
+}
+
 pub fn render(thread: &Thread, options: &Options) -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "<section class=\"thread\" data-slug=\"{}\">\n",
-        escape(&thread.slug)
-    ));
-    render_node(&thread.root, options, &mut out);
-    push_email_hint(&mut out, &thread.slug, options);
-    out.push_str("</section>\n");
-    out
+    let root_html = render_node(&thread.root, options);
+    ThreadTemplate {
+        slug: &thread.slug,
+        root_html,
+        mailto_address: options.mailto_address,
+        show_email_link: options.show_email_link,
+    }
+    .render()
+    .expect("thread template is valid")
 }
 
 pub fn empty(slug: &str, options: &Options) -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "<section class=\"thread\" data-slug=\"{}\">\n",
-        escape(slug)
-    ));
-    out.push_str("<p>No comments yet. Be the first.</p>\n");
-    if options.allow_relay {
-        out.push_str(&comment_form(options.comment_action, ""));
+    let form_html = if options.allow_relay {
+        comment_form(options.comment_action, "", "Leave a comment")
+    } else {
+        String::new()
+    };
+    EmptyTemplate {
+        slug,
+        form_html,
+        mailto_address: options.mailto_address,
+        show_email_link: options.show_email_link,
     }
-    push_email_hint(&mut out, slug, options);
-    out.push_str("</section>\n");
-    out
+    .render()
+    .expect("empty template is valid")
 }
 
-fn push_email_hint(out: &mut String, slug: &str, options: &Options) {
-    if !options.show_email_link {
-        return;
+fn render_node(node: &Node, options: &Options) -> String {
+    let form_html = if options.allow_relay {
+        comment_form(options.comment_action, &node.message.message_id, "Reply")
+    } else {
+        String::new()
+    };
+    let replies_html = node
+        .replies
+        .iter()
+        .map(|r| render_node(r, options))
+        .collect();
+
+    CommentTemplate {
+        id: &node.message.message_id,
+        initial: initial(&node.message.display_name),
+        display_name: &node.message.display_name,
+        body_html: escape_paragraphs(&node.message.body),
+        form_html,
+        replies_html,
     }
-    out.push_str(&format!(
-        "<p class=\"email-hint\"><a href=\"mailto:{addr}?subject={slug}\">Comment by email</a></p>\n",
-        addr = escape(options.mailto_address),
-        slug = escape(&url_encode_subject(slug))
-    ));
+    .render()
+    .expect("comment template is valid")
 }
 
-fn render_node(node: &Node, options: &Options, out: &mut String) {
-    out.push_str("<article class=\"comment\">\n");
-    out.push_str(&format!(
-        "<header>{}</header>\n",
-        escape(&node.message.display_name)
-    ));
-    out.push_str(&format!(
-        "<div class=\"body\">{}</div>\n",
-        escape_paragraphs(&node.message.body)
-    ));
-    if options.allow_relay {
-        out.push_str(&comment_form(
-            options.comment_action,
-            &node.message.message_id,
-        ));
+fn comment_form(action: &str, in_reply_to: &str, label: &str) -> String {
+    CommentFormTemplate {
+        action,
+        in_reply_to,
+        label,
     }
-
-    if !node.replies.is_empty() {
-        out.push_str("<ol class=\"replies\">\n");
-        for reply in &node.replies {
-            out.push_str("<li>\n");
-            render_node(reply, options, out);
-            out.push_str("</li>\n");
-        }
-        out.push_str("</ol>\n");
-    }
-
-    out.push_str("</article>\n");
+    .render()
+    .expect("comment form template is valid")
 }
 
-// Empty in_reply_to means a new top-level comment.
-fn comment_form(action: &str, in_reply_to: &str) -> String {
-    format!(
-        "<form method=\"post\" action=\"{action}\">\n\
-         <input type=\"hidden\" name=\"in_reply_to\" value=\"{parent}\">\n\
-         <label>Name <input type=\"text\" name=\"name\" required></label>\n\
-         <label>Comment <textarea name=\"body\" required></textarea></label>\n\
-         <button type=\"submit\">Reply</button>\n\
-         </form>\n",
-        action = escape(action),
-        parent = escape(in_reply_to)
-    )
+fn initial(name: &str) -> String {
+    name.chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "?".to_string())
 }
 
 fn escape(input: &str) -> String {
@@ -107,8 +133,4 @@ fn escape_paragraphs(input: &str) -> String {
         .map(|p| format!("<p>{}</p>", escape(p).replace('\n', "<br>")))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn url_encode_subject(slug: &str) -> String {
-    slug.replace(' ', "%20")
 }

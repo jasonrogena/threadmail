@@ -1,0 +1,100 @@
+<style>
+:root {
+  color-scheme: light dark;
+  --tm-bg: #ffffff;
+  --tm-fg: #1a1a1a;
+  --tm-muted: #6b7280;
+  --tm-border: #e5e7eb;
+  --tm-accent: #2563eb;
+  --tm-card-bg: #f9fafb;
+  --tm-avatar-bg: #e5e7eb;
+  --tm-avatar-fg: #374151;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tm-bg: #0f172a;
+    --tm-fg: #e2e8f0;
+    --tm-muted: #94a3b8;
+    --tm-border: #263449;
+    --tm-accent: #60a5fa;
+    --tm-card-bg: #111c30;
+    --tm-avatar-bg: #263449;
+    --tm-avatar-fg: #cbd5e1;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--tm-bg); }
+body {
+  color: var(--tm-fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 1rem;
+}
+.thread { max-width: 720px; margin: 0 auto; }
+.comment {
+  background: var(--tm-card-bg);
+  border: 1px solid var(--tm-border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+.comment-meta { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--tm-avatar-bg);
+  color: var(--tm-avatar-fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+.avatar::before { content: attr(data-initial); }
+.comment-author { font-weight: 600; }
+.comment-body p { margin: 0 0 0.6em; }
+.comment-body p:last-child { margin-bottom: 0; }
+.replies {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0 0 0 1.1rem;
+  border-left: 2px solid var(--tm-border);
+}
+.replies > li + li { margin-top: 0.75rem; }
+.replies .comment { margin-top: 0.75rem; }
+.reply-toggle { margin-top: 0.6rem; }
+.reply-toggle summary {
+  cursor: pointer;
+  color: var(--tm-accent);
+  font-size: 0.85rem;
+  list-style: none;
+}
+.reply-toggle summary::-webkit-details-marker { display: none; }
+.reply-toggle summary::before { content: "\21a9 "; }
+.reply-toggle form { margin-top: 0.6rem; display: grid; gap: 0.5rem; max-width: 480px; }
+.reply-toggle label { font-size: 0.8rem; color: var(--tm-muted); display: grid; gap: 0.25rem; }
+.reply-toggle input[type="text"], .reply-toggle textarea {
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--tm-border);
+  border-radius: 6px;
+  background: var(--tm-bg);
+  color: var(--tm-fg);
+}
+.reply-toggle textarea { min-height: 4.5em; resize: vertical; }
+.reply-toggle button {
+  justify-self: start;
+  font: inherit;
+  padding: 0.4rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--tm-accent);
+  color: #fff;
+  cursor: pointer;
+}
+.empty-state { color: var(--tm-muted); }
+.email-hint { margin-top: 1rem; font-size: 0.8rem; color: var(--tm-muted); }
+.email-hint a { color: inherit; }
+</style>

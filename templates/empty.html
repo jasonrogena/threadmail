@@ -1,0 +1,10 @@
+{% include "style.html" %}
+<section class="thread" data-slug="{{ slug }}">
+<p class="empty-state">No comments yet. Be the first.</p>
+{% if !form_html.is_empty() %}
+{{ form_html|safe }}
+{% endif %}
+{% if show_email_link %}
+<p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ slug|urlencode }}">Comment by email</a></p>
+{% endif %}
+</section>
