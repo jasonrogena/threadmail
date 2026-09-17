@@ -28,6 +28,10 @@ posting_address = "our-comments@googlegroups.com"
 # every message it relays. Optional, disabled (empty) by default.
 # body_footer_regex = '(?s)--\s*\nYou received this message.*'
 
+# "auto" (follow the visitor's device), "light", or "dark". Optional,
+# defaults to "auto".
+# theme = "auto"
+
 # Credentials for the bot account's own mailbox. The bot must be a normal
 # subscribed member of the mailing list, so every list message is delivered
 # here as a copy — no Google Groups API, no catch-all routing, and no
