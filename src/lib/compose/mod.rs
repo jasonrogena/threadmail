@@ -1,6 +1,8 @@
 use lettre::Message;
 use lettre::message::Mailbox;
 
+use crate::mail::{Author, Subject};
+
 #[cfg(test)]
 mod tests;
 
@@ -13,7 +15,7 @@ pub enum Error {
 }
 
 pub struct NewComment<'a> {
-    pub name: &'a str,
+    pub author: &'a Author,
     pub body: &'a str,
     pub in_reply_to: Option<&'a str>,
 }
@@ -21,27 +23,25 @@ pub struct NewComment<'a> {
 impl NewComment<'_> {
     pub fn compose(
         &self,
-        slug: &str,
-        subject_prefix: &str,
-        subject_suffix: &str,
+        subject: &Subject,
         bot_address: &str,
         list_address: &str,
     ) -> Result<Message, Error> {
         let from = Mailbox::new(
-            Some(format!("{} (via web)", self.name)),
+            Some(format!("{} (via web)", self.author.display_name)),
             bot_address.parse()?,
         );
         let to: Mailbox = list_address.parse::<lettre::Address>()?.into();
 
-        let subject = match self.in_reply_to {
-            Some(_) => format!("Re: {subject_prefix}{slug}{subject_suffix}"),
-            None => format!("{subject_prefix}{slug}{subject_suffix}"),
+        let subject_line = match self.in_reply_to {
+            Some(_) => subject.reply(),
+            None => subject.to_string(),
         };
 
         let mut builder = Message::builder()
             .from(from)
             .to(to)
-            .subject(subject)
+            .subject(subject_line)
             .message_id(None);
 
         if let Some(parent) = self.in_reply_to {

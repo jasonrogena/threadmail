@@ -1,4 +1,4 @@
-use crate::mail::Message;
+use crate::mail::{Message, Subject};
 
 #[cfg(test)]
 mod tests;
@@ -22,15 +22,10 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn resolve(
-        slug: &str,
-        subject_prefix: &str,
-        subject_suffix: &str,
-        mut messages: Vec<Message>,
-    ) -> Result<Thread, Error> {
+    pub fn resolve(subject: &Subject, mut messages: Vec<Message>) -> Result<Thread, Error> {
         messages.sort_by_key(|m| m.sent_at.unwrap_or(i64::MAX));
 
-        let root_subject = format!("{subject_prefix}{slug}{subject_suffix}");
+        let root_subject = subject.to_string();
         let root_index = messages
             .iter()
             .position(|m| m.is_top_level() && m.subject == root_subject)
@@ -42,7 +37,7 @@ impl Thread {
         // Attach stray messages missing threading headers by subject instead.
         let mut i = 0;
         while i < messages.len() {
-            if messages[i].subject.contains(slug) {
+            if messages[i].subject.contains(subject.slug) {
                 let stray = messages.remove(i);
                 root_node.replies.push(attach_replies(stray, &mut messages));
             } else {
@@ -51,7 +46,7 @@ impl Thread {
         }
 
         Ok(Thread {
-            slug: slug.to_string(),
+            slug: subject.slug.to_string(),
             root: root_node,
         })
     }

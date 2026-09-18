@@ -11,12 +11,46 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Author {
+    pub display_name: String,
+}
+
+impl Author {
+    pub fn initial(&self) -> String {
+        self.display_name
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_else(|| "?".to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Subject<'a> {
+    pub slug: &'a str,
+    pub prefix: &'a str,
+    pub suffix: &'a str,
+}
+
+impl std::fmt::Display for Subject<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}{}", self.prefix, self.slug, self.suffix)
+    }
+}
+
+impl Subject<'_> {
+    pub fn reply(&self) -> String {
+        format!("Re: {self}")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub message_id: String,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub subject: String,
-    pub display_name: String,
+    pub author: Author,
     pub body: String,
     pub sent_at: Option<i64>,
 }
@@ -68,7 +102,7 @@ impl Message {
             in_reply_to,
             references,
             subject,
-            display_name,
+            author: Author { display_name },
             body,
             sent_at,
         })

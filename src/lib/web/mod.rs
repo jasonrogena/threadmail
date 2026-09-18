@@ -13,6 +13,7 @@ use serde::Deserialize;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::cache::CommentCache;
+use crate::mail::{Author, Message, Subject};
 use crate::source::{MailSink, MailSource};
 use crate::{compose, render, thread};
 
@@ -156,7 +157,12 @@ async fn run_refresh(state: AppState, slug: String) {
         }
     };
     let source = state.source.clone();
-    let search_subject = format!("{}{}{}", state.subject_prefix, slug, state.subject_suffix);
+    let search_subject = Subject {
+        slug: &slug,
+        prefix: &state.subject_prefix,
+        suffix: &state.subject_suffix,
+    }
+    .to_string();
     let result = tokio::task::spawn_blocking(move || source.search_subject(&search_subject)).await;
     drop(permit);
 
@@ -185,6 +191,11 @@ async fn show_thread(
     Query(query): Query<ShowThreadQuery>,
 ) -> impl IntoResponse {
     let action = format!("/thread/{slug}");
+    let subject = Subject {
+        slug: &slug,
+        prefix: &state.subject_prefix,
+        suffix: &state.subject_suffix,
+    };
 
     let cached = state.cache.get(&slug).unwrap_or_else(|err| {
         tracing::error!(%err, %slug, "failed to read the comment cache");
@@ -201,17 +212,10 @@ async fn show_thread(
     let messages: Vec<_> = cached
         .raw_messages
         .iter()
-        .filter_map(|bytes| {
-            crate::mail::Message::parse(bytes, state.body_footer_regex.as_ref()).ok()
-        })
+        .filter_map(|bytes| Message::parse(bytes, state.body_footer_regex.as_ref()).ok())
         .collect();
 
-    match thread::Thread::resolve(
-        &slug,
-        &state.subject_prefix,
-        &state.subject_suffix,
-        messages,
-    ) {
+    match thread::Thread::resolve(&subject, messages) {
         Ok(resolved) => Html(resolved.render(&options)).into_response(),
         Err(_) => Html(render::empty(&slug, &options)).into_response(),
     }
@@ -247,19 +251,21 @@ async fn submit_comment(
     // the cache is wrong the moment we've committed to sending this comment.
     let _ = state.cache.invalidate(&slug);
 
+    let author = Author {
+        display_name: form.name,
+    };
     let comment = compose::NewComment {
-        name: &form.name,
+        author: &author,
         body: &form.body,
         in_reply_to,
     };
+    let subject = Subject {
+        slug: &slug,
+        prefix: &state.subject_prefix,
+        suffix: &state.subject_suffix,
+    };
 
-    let message = match comment.compose(
-        &slug,
-        &state.subject_prefix,
-        &state.subject_suffix,
-        &state.bot_address,
-        &state.list_posting_address,
-    ) {
+    let message = match comment.compose(&subject, &state.bot_address, &state.list_posting_address) {
         Ok(message) => message,
         Err(err) => {
             tracing::warn!(%err, %slug, "rejected a malformed comment submission");

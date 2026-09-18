@@ -1,5 +1,6 @@
 use askama::Template;
 
+use crate::mail::{Author, Subject};
 use crate::thread::{Node, Thread};
 
 #[cfg(test)]
@@ -58,8 +59,7 @@ struct EmptyTemplate<'a> {
 #[template(path = "comment.html")]
 struct CommentTemplate<'a> {
     id: &'a str,
-    initial: String,
-    display_name: &'a str,
+    author: &'a Author,
     body_html: String,
     form_html: String,
     replies_html: Vec<String>,
@@ -87,11 +87,12 @@ impl Thread {
             style_html: style(options.theme),
             root_html,
             mailto_address: options.mailto_address,
-            mailto_subject: mailto_subject(
-                &self.slug,
-                options.subject_prefix,
-                options.subject_suffix,
-            ),
+            mailto_subject: Subject {
+                slug: &self.slug,
+                prefix: options.subject_prefix,
+                suffix: options.subject_suffix,
+            }
+            .to_string(),
             show_email_link: options.show_email_link,
             just_posted: options.just_posted,
             refresh_interval_secs: options.refresh_interval_secs,
@@ -114,7 +115,12 @@ pub fn empty(slug: &str, options: &Options) -> String {
         style_html: style(options.theme),
         form_html,
         mailto_address: options.mailto_address,
-        mailto_subject: mailto_subject(slug, options.subject_prefix, options.subject_suffix),
+        mailto_subject: Subject {
+            slug,
+            prefix: options.subject_prefix,
+            suffix: options.subject_suffix,
+        }
+        .to_string(),
         show_email_link: options.show_email_link,
         just_posted: options.just_posted,
         refresh_interval_secs: options.refresh_interval_secs,
@@ -123,10 +129,6 @@ pub fn empty(slug: &str, options: &Options) -> String {
     }
     .render()
     .expect("empty template is valid")
-}
-
-fn mailto_subject(slug: &str, subject_prefix: &str, subject_suffix: &str) -> String {
-    format!("{subject_prefix}{slug}{subject_suffix}")
 }
 
 impl Node {
@@ -140,8 +142,7 @@ impl Node {
 
         CommentTemplate {
             id: &self.message.message_id,
-            initial: initial(&self.message.display_name),
-            display_name: &self.message.display_name,
+            author: &self.message.author,
             body_html: escape_paragraphs(&self.message.body),
             form_html,
             replies_html,
@@ -159,13 +160,6 @@ fn comment_form(action: &str, in_reply_to: &str, label: &str) -> String {
     }
     .render()
     .expect("comment form template is valid")
-}
-
-fn initial(name: &str) -> String {
-    name.chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_else(|| "?".to_string())
 }
 
 fn escape(input: &str) -> String {

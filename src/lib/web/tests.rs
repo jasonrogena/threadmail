@@ -250,7 +250,7 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
 
     let sent = sink.sent.lock().unwrap();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].display_name, "Bob (via web)");
+    assert_eq!(sent[0].author.display_name, "Bob (via web)");
     assert_eq!(sent[0].in_reply_to.as_deref(), Some("root@example.com"));
 }
 

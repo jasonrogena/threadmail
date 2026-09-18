@@ -1,5 +1,5 @@
 use super::*;
-use crate::mail::Message;
+use crate::mail::{Author, Message};
 
 fn msg(id: &str, name: &str, body: &str) -> Message {
     Message {
@@ -7,7 +7,9 @@ fn msg(id: &str, name: &str, body: &str) -> Message {
         in_reply_to: None,
         references: Vec::new(),
         subject: "my-post".to_string(),
-        display_name: name.to_string(),
+        author: Author {
+            display_name: name.to_string(),
+        },
         body: body.to_string(),
         sent_at: None,
     }

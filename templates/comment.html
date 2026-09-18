@@ -1,7 +1,7 @@
 <article class="comment" id="c-{{ id }}">
 <div class="comment-meta">
-<span class="avatar" data-initial="{{ initial }}" aria-hidden="true"></span>
-<span class="comment-author">{{ display_name }}</span>
+<span class="avatar" data-initial="{{ author.initial() }}" aria-hidden="true"></span>
+<span class="comment-author">{{ author.display_name }}</span>
 </div>
 <div class="comment-body">{{ body_html|safe }}</div>
 {{ form_html|safe }}

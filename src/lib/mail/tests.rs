@@ -23,7 +23,7 @@ fn parses_a_top_level_message() {
     let msg = Message::parse(TOP_LEVEL, None).unwrap();
     assert_eq!(msg.message_id, "root@example.com");
     assert_eq!(msg.subject, "my-first-post");
-    assert_eq!(msg.display_name, "Alice");
+    assert_eq!(msg.author.display_name, "Alice");
     assert_eq!(msg.body, "Great post!");
     assert!(msg.is_top_level());
 }
@@ -39,7 +39,7 @@ fn parses_a_reply_with_threading_headers() {
 #[test]
 fn never_exposes_a_real_address() {
     let msg = Message::parse(TOP_LEVEL, None).unwrap();
-    assert!(!msg.display_name.contains('@'));
+    assert!(!msg.author.display_name.contains('@'));
     assert!(!msg.body.contains("alice@example.com"));
 }
 
@@ -52,7 +52,7 @@ Content-Type: text/plain\r\n\
 \r\n\
 Hi.\r\n";
     let msg = Message::parse(raw, None).unwrap();
-    assert_eq!(msg.display_name, "Anonymous");
+    assert_eq!(msg.author.display_name, "Anonymous");
 }
 
 #[test]
