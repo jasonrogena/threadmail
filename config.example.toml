@@ -60,6 +60,22 @@ port = 587
 username = "bot@ourdomain.example"
 password = "an-app-password-not-the-account-password"
 
+# Backs both the comment cache and the outgoing-comment outbox (see [outbox]
+# below). A web-submitted comment is queued here immediately and relayed to
+# SMTP in the background, so the visitor doesn't wait on the mail provider;
+# this file is also what survives a restart so a pending comment isn't lost.
+# Must be a writable, persistent location (e.g. a mounted volume) — the
+# filename itself is up to you.
+[storage]
+path = "/var/lib/threadmail/threadmail.db"
+
+# How long an undelivered comment is retried before being dropped, and how
+# often the background job retries whatever's still pending. Optional —
+# this whole section can be omitted to use the defaults shown below.
+[outbox]
+# ttl_secs = 10800
+# sweep_interval_secs = 10
+
 # Caps on how many IMAP searches / SMTP submissions run at once, so a
 # traffic spike can't hammer the mail provider. Optional — this whole
 # section can be omitted to use the defaults shown below.

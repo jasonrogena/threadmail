@@ -17,6 +17,13 @@ port = 587
 username = "bot@ourdomain.example"
 password = "app-password"
 
+[storage]
+path = "/tmp/threadmail-test-store.db"
+
+[outbox]
+ttl_secs = 60
+sweep_interval_secs = 5
+
 [limits]
 max_concurrent_searches = 20
 max_concurrent_submits = 2

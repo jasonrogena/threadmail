@@ -5,7 +5,7 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use crate::sqlite_cache::SqliteCache;
+use crate::sqlite_store::SqliteStore;
 
 use super::*;
 
@@ -33,27 +33,38 @@ struct FixtureSink {
 }
 
 impl MailSink for FixtureSink {
-    fn submit(&self, message: &lettre::Message) -> Result<(), crate::source::BoxError> {
+    fn submit(&self, _envelope: &Envelope, raw: &[u8]) -> Result<(), crate::source::BoxError> {
         self.sent
             .lock()
             .unwrap()
-            .push(crate::mail::Message::parse(&message.formatted(), None).unwrap());
+            .push(crate::mail::Message::parse(raw, None).unwrap());
         Ok(())
     }
 }
 
-// A long TTL so tests that pre-seed the cache get a deterministic render
-// with no background refresh racing the assertion; tests that care about
-// the refresh itself use `state_with_ttl` instead.
-const NO_REFRESH_NEEDED: u64 = 3600;
+// Always fails, to exercise the outbox's retry/expiry paths deterministically.
+#[derive(Default)]
+struct FailingSink;
 
-fn state(source: FixtureSource, sink: Arc<FixtureSink>) -> AppState {
+impl MailSink for FailingSink {
+    fn submit(&self, _envelope: &Envelope, _raw: &[u8]) -> Result<(), crate::source::BoxError> {
+        Err("the mail provider is unreachable".into())
+    }
+}
+
+// Long enough that nothing in these tests ever hits it by accident; tests
+// that care about expiry pass an explicit short TTL to `AppState::new`.
+const NO_REFRESH_NEEDED: u64 = 3600;
+const NO_OUTBOX_EXPIRY: u64 = 3600;
+const TEST_SWEEP_INTERVAL_SECS: u64 = 1;
+
+fn state(source: FixtureSource, sink: Arc<dyn MailSink>) -> AppState {
     state_with(source, sink, true, true)
 }
 
 fn state_with(
     source: FixtureSource,
-    sink: Arc<FixtureSink>,
+    sink: Arc<dyn MailSink>,
     relay_comments: bool,
     show_email_link: bool,
 ) -> AppState {
@@ -69,7 +80,7 @@ fn state_with(
 #[allow(clippy::too_many_arguments)]
 fn state_with_ttl(
     source: FixtureSource,
-    sink: Arc<FixtureSink>,
+    sink: Arc<dyn MailSink>,
     relay_comments: bool,
     show_email_link: bool,
     cache_ttl_secs: u64,
@@ -88,19 +99,23 @@ fn state_with_ttl(
 #[allow(clippy::too_many_arguments)]
 fn state_with_subject(
     source: FixtureSource,
-    sink: Arc<FixtureSink>,
+    sink: Arc<dyn MailSink>,
     relay_comments: bool,
     show_email_link: bool,
     cache_ttl_secs: u64,
     subject_prefix: &str,
     subject_suffix: &str,
 ) -> AppState {
+    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     AppState::new(
         Arc::new(source),
         sink,
-        Arc::new(SqliteCache::open_in_memory().unwrap()),
+        store.clone(),
         cache_ttl_secs,
         60,
+        store,
+        NO_OUTBOX_EXPIRY,
+        TEST_SWEEP_INTERVAL_SECS,
         "bot@ourdomain.example".to_string(),
         "group@googlegroups.com".to_string(),
         relay_comments,
@@ -128,6 +143,15 @@ async fn get_html(app: Router, uri: &str) -> (StatusCode, String) {
     let status = response.status();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     (status, String::from_utf8(body.to_vec()).unwrap())
+}
+
+async fn wait_for<F: Fn() -> bool>(condition: F) {
+    for _ in 0..50 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 #[tokio::test]
@@ -219,7 +243,7 @@ async fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
 }
 
 #[tokio::test]
-async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
+async fn submitting_a_comment_redirects_immediately_and_relays_it_in_the_background() {
     let sink = Arc::new(FixtureSink::default());
     let app = router(state(
         FixtureSource {
@@ -247,6 +271,8 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
         response.headers().get("location").unwrap(),
         "/thread/my-post"
     );
+
+    wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     let sent = sink.sent.lock().unwrap();
     assert_eq!(sent.len(), 1);
@@ -280,6 +306,8 @@ async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix()
     .await
     .unwrap();
 
+    wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
+
     let sent = sink.sent.lock().unwrap();
     assert_eq!(sent[0].subject, "Blog Comments: my-post (blog)");
 }
@@ -312,6 +340,8 @@ async fn repeated_identical_submissions_only_relay_once() {
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
     }
 
+    wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
+
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }
 
@@ -342,6 +372,8 @@ async fn a_different_comment_after_a_duplicate_still_relays() {
             .await
             .unwrap();
     }
+
+    wait_for(|| sink.sent.lock().unwrap().len() >= 2).await;
 
     assert_eq!(sink.sent.lock().unwrap().len(), 2);
 }
@@ -379,6 +411,8 @@ async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
         response.headers().get("location").unwrap(),
         "/thread/posts/2026-07-12-example"
     );
+
+    wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }
 
@@ -521,14 +555,18 @@ async fn a_stale_notice_shows_only_for_content_past_the_cache_ttl() {
 
 #[tokio::test]
 async fn the_refresh_tag_reflects_the_configured_interval() {
+    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     let app_state = AppState::new(
         Arc::new(FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         }),
         Arc::new(FixtureSink::default()),
-        Arc::new(SqliteCache::open_in_memory().unwrap()),
+        store.clone(),
         NO_REFRESH_NEEDED,
         45,
+        store,
+        NO_OUTBOX_EXPIRY,
+        TEST_SWEEP_INTERVAL_SECS,
         "bot@ourdomain.example".to_string(),
         "group@googlegroups.com".to_string(),
         true,
@@ -566,15 +604,7 @@ async fn a_background_refresh_populates_the_cache_for_a_later_request() {
     let (_, first) = get_html(app.clone(), "/thread/my-post").await;
     assert!(first.contains("class=\"stale-notice\""));
 
-    // Give the spawned refresh task a chance to run and write the cache.
-    let mut entry = cache.get("my-post").unwrap();
-    for _ in 0..50 {
-        if !entry.raw_messages.is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        entry = cache.get("my-post").unwrap();
-    }
+    wait_for(|| !cache.get("my-post").unwrap().raw_messages.is_empty()).await;
 
     let (_, second) = get_html(app, "/thread/my-post").await;
     assert!(second.contains("Great post!"));
@@ -597,12 +627,16 @@ async fn the_imap_search_uses_the_slug_wrapped_in_the_configured_prefix_and_suff
     let source = RecordingSource {
         searched: searched.clone(),
     };
+    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     let app_state = AppState::new(
         Arc::new(source),
         Arc::new(FixtureSink::default()),
-        Arc::new(SqliteCache::open_in_memory().unwrap()),
+        store.clone(),
         NO_REFRESH_NEEDED,
         60,
+        store,
+        NO_OUTBOX_EXPIRY,
+        TEST_SWEEP_INTERVAL_SECS,
         "bot@ourdomain.example".to_string(),
         "group@googlegroups.com".to_string(),
         true,
@@ -618,12 +652,7 @@ async fn the_imap_search_uses_the_slug_wrapped_in_the_configured_prefix_and_suff
 
     get_html(app, "/thread/my-post").await;
 
-    for _ in 0..50 {
-        if !searched.lock().unwrap().is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_for(|| !searched.lock().unwrap().is_empty()).await;
 
     assert_eq!(
         searched.lock().unwrap().as_slice(),
@@ -654,17 +683,140 @@ async fn a_successful_submission_triggers_an_immediate_re_search_so_the_reply_sh
     .await
     .unwrap();
 
-    // The submission invalidates the cache and immediately re-triggers a
-    // background search (rather than waiting for the next stale page view);
-    // wait for that search to land and mark the slug refreshed again.
-    let mut entry = cache.get("my-post").unwrap();
-    for _ in 0..50 {
-        if entry.refreshed_at.is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        entry = cache.get("my-post").unwrap();
-    }
+    // The submission invalidates the cache and, once the queued comment is
+    // actually delivered, re-triggers a background search; wait for that
+    // search to land and mark the slug refreshed again.
+    wait_for(|| cache.get("my-post").unwrap().refreshed_at.is_some()).await;
 
-    assert!(entry.refreshed_at.is_some());
+    assert!(cache.get("my-post").unwrap().refreshed_at.is_some());
+}
+
+#[tokio::test]
+async fn a_queued_comment_is_removed_from_the_outbox_once_delivered() {
+    let sink = Arc::new(FixtureSink::default());
+    let app_state = state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        sink,
+    );
+    let outbox = app_state.outbox.clone();
+    let app = router(app_state);
+
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/thread/my-post")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    wait_for(|| outbox.pending().unwrap().is_empty()).await;
+
+    assert!(outbox.pending().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_delivery_stays_queued_for_retry() {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        Arc::new(FailingSink),
+    );
+    let outbox = app_state.outbox.clone();
+    let app = router(app_state);
+
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/thread/my-post")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // Give the first (failing) attempt a moment to run and settle.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(outbox.pending().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_expired_pending_comment_is_dropped_without_being_sent() {
+    let sink = Arc::new(FixtureSink::default());
+    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let app_state = AppState::new(
+        Arc::new(FixtureSource {
+            raw_messages: Vec::new(),
+        }),
+        sink.clone(),
+        store.clone(),
+        NO_REFRESH_NEEDED,
+        60,
+        store,
+        0, // already expired the instant it's queued
+        TEST_SWEEP_INTERVAL_SECS,
+        "bot@ourdomain.example".to_string(),
+        "group@googlegroups.com".to_string(),
+        true,
+        true,
+        "auto".to_string(),
+        None,
+        "".to_string(),
+        "".to_string(),
+        8,
+        4,
+    );
+    let outbox = app_state.outbox.clone();
+    let app = router(app_state);
+
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/thread/my-post")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    wait_for(|| outbox.pending().unwrap().is_empty()).await;
+
+    assert!(outbox.pending().unwrap().is_empty());
+    assert!(sink.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_outbox_worker_delivers_messages_left_over_from_a_previous_run() {
+    let sink = Arc::new(FixtureSink::default());
+    let app_state = state(
+        FixtureSource {
+            raw_messages: Vec::new(),
+        },
+        sink.clone(),
+    );
+    // Simulate a comment that was queued before a restart, with no HTTP
+    // request involved this time.
+    app_state
+        .outbox
+        .enqueue(
+            "my-post",
+            "bot@ourdomain.example",
+            "group@googlegroups.com",
+            ROOT,
+        )
+        .unwrap();
+
+    spawn_outbox_worker(app_state);
+
+    wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
+
+    assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }

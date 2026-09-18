@@ -7,6 +7,7 @@ fn loads_a_well_formed_config() {
     assert_eq!(config.list.posting_address, "group@googlegroups.com");
     assert_eq!(config.imap.port, 993);
     assert_eq!(config.smtp.port, 587);
+    assert_eq!(config.storage.path, "/tmp/threadmail-test-store.db");
 }
 
 #[test]
@@ -21,6 +22,8 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert_eq!(config.limits.max_concurrent_submits, 4);
     assert_eq!(config.limits.cache_ttl_secs, 300);
     assert_eq!(config.limits.refresh_interval_secs, 30);
+    assert_eq!(config.outbox.ttl_secs, 3 * 60 * 60);
+    assert_eq!(config.outbox.sweep_interval_secs, 10);
 }
 
 #[test]
@@ -30,6 +33,13 @@ fn honors_explicit_limits_when_given() {
     assert_eq!(config.limits.max_concurrent_submits, 2);
     assert_eq!(config.limits.cache_ttl_secs, 30);
     assert_eq!(config.limits.refresh_interval_secs, 90);
+}
+
+#[test]
+fn honors_an_explicit_outbox_config() {
+    let config = Config::load("tests/configs/good-with-limits.toml").unwrap();
+    assert_eq!(config.outbox.ttl_secs, 60);
+    assert_eq!(config.outbox.sweep_interval_secs, 5);
 }
 
 #[test]
@@ -58,6 +68,8 @@ fn username_and_password_default_to_empty_string_when_omitted() {
         [smtp]
         host = "smtp.example.com"
         port = 587
+        [storage]
+        path = "/tmp/threadmail-test-store.db"
     "#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.imap.username, "");
@@ -82,6 +94,8 @@ fn honors_an_explicit_subject_prefix_and_suffix() {
         [smtp]
         host = "smtp.example.com"
         port = 587
+        [storage]
+        path = "/tmp/threadmail-test-store.db"
     "#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.list.subject_prefix, "Blog Comments: ");

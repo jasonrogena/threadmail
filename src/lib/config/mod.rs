@@ -20,6 +20,9 @@ pub struct Config {
     pub list: ListConfig,
     pub imap: ImapConfig,
     pub smtp: SmtpConfig,
+    pub storage: StorageConfig,
+    #[serde(default)]
+    pub outbox: OutboxConfig,
     #[serde(default)]
     pub limits: Limits,
 }
@@ -77,6 +80,29 @@ impl Default for Limits {
             max_concurrent_submits: 4,
             cache_ttl_secs: 300,
             refresh_interval_secs: 30,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StorageConfig {
+    // Backs both the comment cache and the outgoing-comment outbox; must be
+    // a writable, persistent location (e.g. a mounted volume).
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct OutboxConfig {
+    pub ttl_secs: u64,
+    pub sweep_interval_secs: u64,
+}
+
+impl Default for OutboxConfig {
+    fn default() -> Self {
+        Self {
+            ttl_secs: 3 * 60 * 60,
+            sweep_interval_secs: 10,
         }
     }
 }

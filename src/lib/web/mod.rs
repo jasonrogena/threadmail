@@ -8,13 +8,14 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::get;
 use axum::{Form, Router};
+use lettre::address::Envelope;
 use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
-use crate::cache::CommentCache;
 use crate::mail::{Author, Message, Subject};
-use crate::source::{MailSink, MailSource};
+use crate::source::{BoxError, MailSink, MailSource};
+use crate::store::{IncomingCommentStore, OutgoingComment, OutgoingCommentStore};
 use crate::{compose, render, thread};
 
 #[cfg(test)]
@@ -27,9 +28,12 @@ const DEDUPE_WINDOW: Duration = Duration::from_secs(60);
 pub struct AppState {
     source: Arc<dyn MailSource>,
     sink: Arc<dyn MailSink>,
-    cache: Arc<dyn CommentCache>,
+    cache: Arc<dyn IncomingCommentStore>,
     cache_ttl: Duration,
     refresh_interval_secs: u64,
+    outbox: Arc<dyn OutgoingCommentStore>,
+    outbox_ttl: Duration,
+    outbox_sweep_interval: Duration,
     bot_address: String,
     list_posting_address: String,
     relay_comments: bool,
@@ -42,6 +46,7 @@ pub struct AppState {
     submit_limit: Arc<Semaphore>,
     recent_submissions: Arc<Mutex<HashMap<u64, Instant>>>,
     refreshing: Arc<Mutex<HashSet<String>>>,
+    sending: Arc<Mutex<HashSet<i64>>>,
 }
 
 impl AppState {
@@ -49,9 +54,12 @@ impl AppState {
     pub fn new(
         source: Arc<dyn MailSource>,
         sink: Arc<dyn MailSink>,
-        cache: Arc<dyn CommentCache>,
+        cache: Arc<dyn IncomingCommentStore>,
         cache_ttl_secs: u64,
         refresh_interval_secs: u64,
+        outbox: Arc<dyn OutgoingCommentStore>,
+        outbox_ttl_secs: u64,
+        outbox_sweep_interval_secs: u64,
         bot_address: String,
         list_posting_address: String,
         relay_comments: bool,
@@ -69,6 +77,9 @@ impl AppState {
             cache,
             cache_ttl: Duration::from_secs(cache_ttl_secs),
             refresh_interval_secs,
+            outbox,
+            outbox_ttl: Duration::from_secs(outbox_ttl_secs),
+            outbox_sweep_interval: Duration::from_secs(outbox_sweep_interval_secs),
             bot_address,
             list_posting_address,
             relay_comments,
@@ -81,6 +92,7 @@ impl AppState {
             submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
             recent_submissions: Arc::new(Mutex::new(HashMap::new())),
             refreshing: Arc::new(Mutex::new(HashSet::new())),
+            sending: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -104,6 +116,25 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/thread/{*slug}", get(show_thread).post(submit_comment))
         .with_state(state)
+}
+
+// Runs for the life of the process: on the first tick this picks up whatever
+// was still pending from before a restart, and every tick after that retries
+// anything still waiting.
+pub fn spawn_outbox_worker(state: AppState) {
+    tokio::spawn(async move {
+        loop {
+            match state.outbox.pending() {
+                Ok(pending) => {
+                    for message in pending {
+                        spawn_send(&state, message);
+                    }
+                }
+                Err(err) => tracing::error!(%err, "failed to read the outbox"),
+            }
+            tokio::time::sleep(state.outbox_sweep_interval).await;
+        }
+    });
 }
 
 fn submission_key(slug: &str, in_reply_to: Option<&str>, name: &str, body: &str) -> u64 {
@@ -174,6 +205,72 @@ async fn run_refresh(state: AppState, slug: String) {
     state.refreshing.lock().unwrap().remove(&slug);
 }
 
+// Kicks off a background SMTP delivery attempt for a queued comment if one
+// isn't already running for it, and returns immediately.
+fn spawn_send(state: &AppState, pending: OutgoingComment) {
+    let newly_started = state.sending.lock().unwrap().insert(pending.id);
+    if newly_started {
+        tokio::spawn(attempt_send(state.clone(), pending));
+    }
+}
+
+fn build_envelope(from_address: &str, to_address: &str) -> Result<Envelope, BoxError> {
+    let from: lettre::Address = from_address.parse()?;
+    let to: lettre::Address = to_address.parse()?;
+    Ok(Envelope::new(Some(from), vec![to])?)
+}
+
+async fn attempt_send(state: AppState, pending: OutgoingComment) {
+    if pending.is_expired(state.outbox_ttl) {
+        tracing::warn!(
+            id = pending.id,
+            slug = %pending.slug,
+            "dropping a queued comment that was never delivered within its TTL"
+        );
+        let _ = state.outbox.remove(pending.id);
+        state.sending.lock().unwrap().remove(&pending.id);
+        return;
+    }
+
+    let permit = match acquire(&state.submit_limit).await {
+        Ok(permit) => permit,
+        Err(_) => {
+            state.sending.lock().unwrap().remove(&pending.id);
+            return;
+        }
+    };
+
+    let envelope = match build_envelope(&pending.from_address, &pending.to_address) {
+        Ok(envelope) => envelope,
+        Err(err) => {
+            tracing::error!(%err, id = pending.id, "dropping a queued comment with an unusable envelope");
+            let _ = state.outbox.remove(pending.id);
+            state.sending.lock().unwrap().remove(&pending.id);
+            return;
+        }
+    };
+
+    let sink = state.sink.clone();
+    let raw = pending.raw.clone();
+    let result = tokio::task::spawn_blocking(move || sink.submit(&envelope, &raw)).await;
+    drop(permit);
+
+    match result {
+        Ok(Ok(())) => {
+            let _ = state.outbox.remove(pending.id);
+            refresh_in_background(&state, &pending.slug);
+        }
+        Ok(Err(err)) => {
+            tracing::warn!(%err, id = pending.id, slug = %pending.slug, "failed to submit a queued comment; will retry");
+        }
+        Err(err) => {
+            tracing::error!(%err, id = pending.id, "the blocking SMTP submit task panicked");
+        }
+    }
+
+    state.sending.lock().unwrap().remove(&pending.id);
+}
+
 async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) -> impl IntoResponse {
     let action = format!("/thread/{slug}");
     let subject = Subject {
@@ -184,7 +281,7 @@ async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) ->
 
     let cached = state.cache.get(&slug).unwrap_or_else(|err| {
         tracing::error!(%err, %slug, "failed to read the comment cache");
-        crate::cache::CacheEntry::empty()
+        crate::store::IncomingComment::empty()
     });
 
     let stale = cached.is_stale(state.cache_ttl);
@@ -258,35 +355,24 @@ async fn submit_comment(
         }
     };
 
-    let result = {
-        let _permit = match acquire(&state.submit_limit).await {
-            Ok(permit) => permit,
-            Err(status) => return (status, "too busy, please try again").into_response(),
-        };
-        let sink = state.sink.clone();
-        tokio::task::spawn_blocking(move || sink.submit(&message)).await
+    let pending = match state.outbox.enqueue(
+        &slug,
+        &state.bot_address,
+        &state.list_posting_address,
+        &message.formatted(),
+    ) {
+        Ok(pending) => pending,
+        Err(err) => {
+            tracing::error!(%err, %slug, "failed to queue a comment for delivery");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not queue that comment",
+            )
+                .into_response();
+        }
     };
 
-    match result {
-        Ok(Ok(())) => {
-            refresh_in_background(&state, &slug);
-            Redirect::to(&format!("/thread/{slug}")).into_response()
-        }
-        Ok(Err(err)) => {
-            tracing::error!(%err, %slug, "failed to submit a comment to the mailing list");
-            (
-                StatusCode::BAD_GATEWAY,
-                "could not submit that comment, please try again",
-            )
-                .into_response()
-        }
-        Err(err) => {
-            tracing::error!(%err, %slug, "the blocking SMTP submit task panicked");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "could not submit that comment",
-            )
-                .into_response()
-        }
-    }
+    spawn_send(&state, pending);
+
+    Redirect::to(&format!("/thread/{slug}")).into_response()
 }

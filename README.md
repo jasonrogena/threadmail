@@ -2,19 +2,19 @@
 
 Static-site comments backed by a mailing list, not a database.
 
-Every comment is a real RFC 5322 email, threaded via `In-Reply-To`/`References` like any mail client. No database, no JavaScript, no persistent state: the mailing list is the only system of record. A single Rust binary resolves and renders a thread on demand, and optionally relays no-JS web-form submissions into the list as email.
+Every comment is a real RFC 5322 email, threaded via `In-Reply-To`/`References` like any mail client. No JavaScript, no database of comments: the mailing list is the only system of record. A single Rust binary resolves and renders a thread on demand, and optionally relays no-JS web-form submissions into the list as email.
 
 ## Tenets
 
 - **Privacy.** No real email address is ever rendered, in any form. The web form collects only a name and a comment body.
-- **Standards-based, for posterity.** Comments live in the mailing list, not in threadmail. Nothing is persisted locally; a thread is resolved fresh from the mailbox on every request.
+- **Standards-based, for posterity.** Comments live in the mailing list, not in threadmail. The local SQLite file is a disposable cache and a delivery-retry queue, never a record of what was said — see How it works.
 - **Simplicity.** One binary, no JavaScript. Embedding a thread is one `<iframe>` tag. Moderation is fully delegated to the mailing list provider.
 
 ## How it works
 
 A bot account subscribed to the list receives a copy of every message; threadmail reads that account's own IMAP mailbox (no Google Groups API, works with any mailing list technology). A post's slug is the email `Subject`; the thread root is the earliest top-level message with that subject, and replies attach via `In-Reply-To`/`References`, falling back to "subject still carries the slug" for messages a client failed to thread correctly.
 
-`GET /thread/<slug>` resolves and renders a thread on the spot. Nothing is cached to disk and nothing is seeded ahead of time: a thread exists exactly when a real comment exists.
+`GET /thread/<slug>` serves from a local cache, refreshed from IMAP in the background on an interval, so a page loads instantly and a traffic spike doesn't hammer the mail provider. A submitted comment is queued locally and relayed by SMTP in the background, retried until delivered or a TTL passes, so posting doesn't block on SMTP and a restart mid-delivery doesn't lose it. Both live in one SQLite file that's safe to delete: IMAP delivery, not that file, is what actually counts as said.
 
 Comments arrive two ways, each independently toggleable in config: a no-JS `<form>` (relayed by the bot account over SMTP) or a plain `mailto:` link for commenting directly by email. Outbound IMAP searches and SMTP submissions are capped by a configurable semaphore, so a traffic spike can't hammer the mail provider.
 
@@ -35,15 +35,4 @@ Copy `config.example.toml` and fill it in, then:
 threadmail --config-path ./config.toml serve
 ```
 
-## Building and testing
-
-```sh
-make build  # static musl binary
-make test   # clippy -D warnings, fmt --check, cargo test
-```
-
-TLS is rustls, not native-tls/OpenSSL, since OpenSSL is painful to statically link under musl.
-
-## Code layout
-
-The core (`mail`, `thread`, `render`, `compose`) is pure, I/O-free functions and data, unit-tested with literal byte fixtures. The only I/O boundaries are two small traits, `MailSource` and `MailSink`, each with one real adapter (`imap_source`, `smtp_sink`). `web/` is a thin axum layer with no business logic of its own.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for building, testing, and code layout.

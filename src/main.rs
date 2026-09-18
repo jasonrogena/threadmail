@@ -5,8 +5,8 @@ use regex::Regex;
 use threadmail::config::{self, Config};
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
-use threadmail::sqlite_cache::SqliteCache;
-use threadmail::web::{AppState, router};
+use threadmail::sqlite_store::SqliteStore;
+use threadmail::web::{AppState, router, spawn_outbox_worker};
 use tracing::Level;
 
 /// Static-site comments backed by a mailing list, not a database
@@ -134,17 +134,22 @@ async fn serve(config_path: &str) {
             std::process::exit(1);
         }),
     );
-    let cache = Arc::new(SqliteCache::open_in_memory().unwrap_or_else(|err| {
-        tracing::error!(%err, "could not open the comment cache");
-        std::process::exit(1);
-    }));
+    let store = Arc::new(
+        SqliteStore::open(&config.storage.path).unwrap_or_else(|err| {
+            tracing::error!(%err, path = config.storage.path, "could not open the database");
+            std::process::exit(1);
+        }),
+    );
 
     let state = AppState::new(
         source,
         sink,
-        cache,
+        store.clone(),
         config.limits.cache_ttl_secs,
         config.limits.refresh_interval_secs,
+        store,
+        config.outbox.ttl_secs,
+        config.outbox.sweep_interval_secs,
         config.list.bot_address,
         config.list.posting_address,
         config.list.relay_comments,
@@ -156,6 +161,8 @@ async fn serve(config_path: &str) {
         config.limits.max_concurrent_searches,
         config.limits.max_concurrent_submits,
     );
+
+    spawn_outbox_worker(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&config.server.bind_address)
         .await

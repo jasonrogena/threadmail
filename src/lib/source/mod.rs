@@ -7,5 +7,5 @@ pub trait MailSource: Send + Sync {
 }
 
 pub trait MailSink: Send + Sync {
-    fn submit(&self, message: &lettre::Message) -> Result<(), BoxError>;
+    fn submit(&self, envelope: &lettre::address::Envelope, raw: &[u8]) -> Result<(), BoxError>;
 }

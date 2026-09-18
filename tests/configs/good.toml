@@ -16,3 +16,6 @@ host = "smtp.gmail.com"
 port = 587
 username = "bot@ourdomain.example"
 password = "app-password"
+
+[storage]
+path = "/tmp/threadmail-test-store.db"

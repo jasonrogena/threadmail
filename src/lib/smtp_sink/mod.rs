@@ -29,8 +29,8 @@ impl SmtpSink {
 }
 
 impl MailSink for SmtpSink {
-    fn submit(&self, message: &lettre::Message) -> Result<(), BoxError> {
-        self.transport.send(message)?;
+    fn submit(&self, envelope: &lettre::address::Envelope, raw: &[u8]) -> Result<(), BoxError> {
+        self.transport.send_raw(envelope, raw)?;
         Ok(())
     }
 }
