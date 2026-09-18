@@ -4,6 +4,16 @@ Static-site comments backed by a mailing list, not a database.
 
 Every comment is a real RFC 5322 email, threaded via `In-Reply-To`/`References` like any mail client. No JavaScript, no database of comments: the mailing list is the only system of record. A single Rust binary resolves and renders a thread on demand, and optionally relays no-JS web-form submissions into the list as email.
 
+## Screenshots
+
+A thread rendered by threadmail:
+
+![A rendered comment thread](img/threadmail-screenshot.png)
+
+The same thread as an actual mailing list conversation in Google Groups:
+
+![The same thread in Google Groups](img/google-groups-screenshot.png)
+
 ## Tenets
 
 - **Privacy.** No real email address is ever rendered, in any form. The web form collects only a name and a comment body.
