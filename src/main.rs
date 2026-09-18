@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use regex::Regex;
 use threadmail::config::{self, Config};
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
@@ -63,9 +62,9 @@ async fn main() {
     }
 }
 
-fn required(from_file: &str, env_var: &str, file_field: &str) -> String {
-    config::resolve_secret(from_file, std::env::var(env_var).ok()).unwrap_or_else(|| {
-        tracing::error!("no value set: set {file_field} in the config file or {env_var}");
+fn or_exit<T>(result: Result<T, config::Error>) -> T {
+    result.unwrap_or_else(|err| {
+        tracing::error!(%err, "invalid configuration");
         std::process::exit(1);
     })
 }
@@ -76,64 +75,17 @@ async fn serve(config_path: &str) {
         std::process::exit(1);
     });
 
-    let imap_username = required(
-        &config.imap.username,
-        "THREADMAIL_IMAP_USERNAME",
-        "imap.username",
-    );
-    let imap_password = required(
-        &config.imap.password,
-        "THREADMAIL_IMAP_PASSWORD",
-        "imap.password",
-    );
-    let smtp_username = required(
-        &config.smtp.username,
-        "THREADMAIL_SMTP_USERNAME",
-        "smtp.username",
-    );
-    let smtp_password = required(
-        &config.smtp.password,
-        "THREADMAIL_SMTP_PASSWORD",
-        "smtp.password",
-    );
+    let body_footer_regex = or_exit(config.list.body_footer_regex());
+    let theme = or_exit(config.list.theme().map(str::to_string));
 
-    let body_footer_regex = if config.list.body_footer_regex.is_empty() {
-        None
-    } else {
-        Some(
-            Regex::new(&config.list.body_footer_regex).unwrap_or_else(|err| {
-                tracing::error!(%err, "invalid list.body_footer_regex");
-                std::process::exit(1);
-            }),
-        )
-    };
-
-    if !["auto", "light", "dark"].contains(&config.list.theme.as_str()) {
-        tracing::error!(
-            theme = config.list.theme,
-            "list.theme must be auto, light, or dark"
-        );
+    let source = Arc::new(ImapSource::new(&config.imap).unwrap_or_else(|err| {
+        tracing::error!(%err, "could not build the IMAP source");
         std::process::exit(1);
-    }
-
-    let source = Arc::new(ImapSource::new(
-        config.imap.host,
-        config.imap.port,
-        imap_username,
-        imap_password,
-    ));
-    let sink = Arc::new(
-        SmtpSink::new(
-            &config.smtp.host,
-            config.smtp.port,
-            smtp_username,
-            smtp_password,
-        )
-        .unwrap_or_else(|err| {
-            tracing::error!(%err, "could not build the SMTP transport");
-            std::process::exit(1);
-        }),
-    );
+    }));
+    let sink = Arc::new(SmtpSink::new(&config.smtp).unwrap_or_else(|err| {
+        tracing::error!(%err, "could not build the SMTP transport");
+        std::process::exit(1);
+    }));
     let store = Arc::new(
         SqliteStore::open(&config.storage.path).unwrap_or_else(|err| {
             tracing::error!(%err, path = config.storage.path, "could not open the database");
@@ -141,36 +93,27 @@ async fn serve(config_path: &str) {
         }),
     );
 
+    let bind_address = config.server.bind_address.clone();
+
     let state = AppState::new(
         source,
         sink,
         store.clone(),
-        config.limits.cache_ttl_secs,
-        config.limits.refresh_interval_secs,
         store,
-        config.outbox.ttl_secs,
-        config.outbox.sweep_interval_secs,
-        config.list.bot_address,
-        config.list.posting_address,
-        config.list.relay_comments,
-        config.list.show_email_link,
-        config.list.theme,
         body_footer_regex,
-        config.list.subject_prefix,
-        config.list.subject_suffix,
-        config.limits.max_concurrent_searches,
-        config.limits.max_concurrent_submits,
+        theme,
+        config,
     );
 
     spawn_outbox_worker(state.clone());
 
-    let listener = tokio::net::TcpListener::bind(&config.server.bind_address)
+    let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
         .unwrap_or_else(|err| {
-            tracing::error!(%err, address = config.server.bind_address, "could not bind");
+            tracing::error!(%err, address = bind_address, "could not bind");
             std::process::exit(1);
         });
-    tracing::info!(address = config.server.bind_address, "listening");
+    tracing::info!(address = bind_address, "listening");
     axum::serve(listener, router(state))
         .await
         .unwrap_or_else(|err| {

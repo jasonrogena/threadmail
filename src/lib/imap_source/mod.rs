@@ -7,6 +7,7 @@ use imap::Session;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
+use crate::config::ImapConfig;
 use crate::source::{BoxError, MailSource};
 
 #[cfg(test)]
@@ -24,6 +25,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("could not authenticate to the IMAP server")]
     Connect(#[source] imap::Error),
+    #[error(transparent)]
+    Config(#[from] crate::config::Error),
 }
 
 pub struct ImapSource {
@@ -34,18 +37,13 @@ pub struct ImapSource {
 }
 
 impl ImapSource {
-    pub fn new(
-        host: impl Into<String>,
-        port: u16,
-        username: impl Into<String>,
-        password: impl Into<String>,
-    ) -> Self {
-        Self {
-            host: host.into(),
-            port,
-            username: username.into(),
-            password: password.into(),
-        }
+    pub fn new(config: &ImapConfig) -> Result<Self, Error> {
+        Ok(Self {
+            host: config.host.clone(),
+            port: config.port,
+            username: config.username()?,
+            password: config.password()?,
+        })
     }
 
     fn connect(&self) -> Result<Session<TlsStream>, Error> {

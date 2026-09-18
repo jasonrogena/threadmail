@@ -13,6 +13,7 @@ use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
+use crate::config::Config;
 use crate::mail::{Author, Message, Subject};
 use crate::source::{BoxError, MailSink, MailSource};
 use crate::store::{IncomingCommentStore, OutgoingComment, OutgoingCommentStore};
@@ -24,24 +25,20 @@ mod tests;
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEDUPE_WINDOW: Duration = Duration::from_secs(60);
 
+// theme and body_footer_regex aren't config fields verbatim: resolving them
+// is fallible (an invalid theme, a bad regex), so the caller resolves them
+// up front and hands over the already-valid result. Everything else that's
+// just passed through comes straight off config, held whole in case other
+// handlers need fields of it later.
 #[derive(Clone)]
 pub struct AppState {
     source: Arc<dyn MailSource>,
     sink: Arc<dyn MailSink>,
     cache: Arc<dyn IncomingCommentStore>,
-    cache_ttl: Duration,
-    refresh_interval_secs: u64,
     outbox: Arc<dyn OutgoingCommentStore>,
-    outbox_ttl: Duration,
-    outbox_sweep_interval: Duration,
-    bot_address: String,
-    list_posting_address: String,
-    relay_comments: bool,
-    show_email_link: bool,
+    config: Arc<Config>,
     theme: String,
     body_footer_regex: Option<Regex>,
-    subject_prefix: String,
-    subject_suffix: String,
     search_limit: Arc<Semaphore>,
     submit_limit: Arc<Semaphore>,
     recent_submissions: Arc<Mutex<HashMap<u64, Instant>>>,
@@ -50,46 +47,27 @@ pub struct AppState {
 }
 
 impl AppState {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: Arc<dyn MailSource>,
         sink: Arc<dyn MailSink>,
         cache: Arc<dyn IncomingCommentStore>,
-        cache_ttl_secs: u64,
-        refresh_interval_secs: u64,
         outbox: Arc<dyn OutgoingCommentStore>,
-        outbox_ttl_secs: u64,
-        outbox_sweep_interval_secs: u64,
-        bot_address: String,
-        list_posting_address: String,
-        relay_comments: bool,
-        show_email_link: bool,
-        theme: String,
         body_footer_regex: Option<Regex>,
-        subject_prefix: String,
-        subject_suffix: String,
-        max_concurrent_searches: usize,
-        max_concurrent_submits: usize,
+        theme: String,
+        config: Config,
     ) -> Self {
+        let search_limit = Arc::new(Semaphore::new(config.limits.max_concurrent_searches));
+        let submit_limit = Arc::new(Semaphore::new(config.limits.max_concurrent_submits));
         Self {
             source,
             sink,
             cache,
-            cache_ttl: Duration::from_secs(cache_ttl_secs),
-            refresh_interval_secs,
             outbox,
-            outbox_ttl: Duration::from_secs(outbox_ttl_secs),
-            outbox_sweep_interval: Duration::from_secs(outbox_sweep_interval_secs),
-            bot_address,
-            list_posting_address,
-            relay_comments,
-            show_email_link,
+            config: Arc::new(config),
             theme,
             body_footer_regex,
-            subject_prefix,
-            subject_suffix,
-            search_limit: Arc::new(Semaphore::new(max_concurrent_searches)),
-            submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
+            search_limit,
+            submit_limit,
             recent_submissions: Arc::new(Mutex::new(HashMap::new())),
             refreshing: Arc::new(Mutex::new(HashSet::new())),
             sending: Arc::new(Mutex::new(HashSet::new())),
@@ -99,14 +77,14 @@ impl AppState {
     fn render_options<'a>(&'a self, comment_action: &'a str, stale: bool) -> render::Options<'a> {
         render::Options {
             comment_action,
-            mailto_address: &self.list_posting_address,
-            allow_relay: self.relay_comments,
-            show_email_link: self.show_email_link,
+            mailto_address: &self.config.list.posting_address,
+            allow_relay: self.config.list.relay_comments,
+            show_email_link: self.config.list.show_email_link,
             theme: &self.theme,
-            refresh_interval_secs: self.refresh_interval_secs,
+            refresh_interval_secs: self.config.limits.refresh_interval_secs,
             stale,
-            subject_prefix: &self.subject_prefix,
-            subject_suffix: &self.subject_suffix,
+            subject_prefix: &self.config.list.subject_prefix,
+            subject_suffix: &self.config.list.subject_suffix,
         }
     }
 }
@@ -132,7 +110,7 @@ pub fn spawn_outbox_worker(state: AppState) {
                 }
                 Err(err) => tracing::error!(%err, "failed to read the outbox"),
             }
-            tokio::time::sleep(state.outbox_sweep_interval).await;
+            tokio::time::sleep(Duration::from_secs(state.config.outbox.sweep_interval_secs)).await;
         }
     });
 }
@@ -179,8 +157,8 @@ async fn run_refresh(state: AppState, slug: String) {
     let source = state.source.clone();
     let search_subject = Subject {
         slug: &slug,
-        prefix: &state.subject_prefix,
-        suffix: &state.subject_suffix,
+        prefix: &state.config.list.subject_prefix,
+        suffix: &state.config.list.subject_suffix,
     }
     .to_string();
     let result = tokio::task::spawn_blocking(move || source.search_subject(&search_subject)).await;
@@ -221,7 +199,7 @@ fn build_envelope(from_address: &str, to_address: &str) -> Result<Envelope, BoxE
 }
 
 async fn attempt_send(state: AppState, pending: OutgoingComment) {
-    if pending.is_expired(state.outbox_ttl) {
+    if pending.is_expired(Duration::from_secs(state.config.outbox.ttl_secs)) {
         tracing::warn!(
             id = pending.id,
             slug = %pending.slug,
@@ -275,8 +253,8 @@ async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) ->
     let action = format!("/thread/{slug}");
     let subject = Subject {
         slug: &slug,
-        prefix: &state.subject_prefix,
-        suffix: &state.subject_suffix,
+        prefix: &state.config.list.subject_prefix,
+        suffix: &state.config.list.subject_suffix,
     };
 
     let cached = state.cache.get(&slug).unwrap_or_else(|err| {
@@ -284,7 +262,7 @@ async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) ->
         crate::store::IncomingComment::empty()
     });
 
-    let stale = cached.is_stale(state.cache_ttl);
+    let stale = cached.is_stale(Duration::from_secs(state.config.limits.cache_ttl_secs));
     if stale {
         refresh_in_background(&state, &slug);
     }
@@ -315,7 +293,7 @@ async fn submit_comment(
     Path(slug): Path<String>,
     Form(form): Form<CommentForm>,
 ) -> impl IntoResponse {
-    if !state.relay_comments {
+    if !state.config.list.relay_comments {
         return (
             StatusCode::FORBIDDEN,
             "commenting via the web form is disabled on this site; reply by email instead",
@@ -343,11 +321,15 @@ async fn submit_comment(
     };
     let subject = Subject {
         slug: &slug,
-        prefix: &state.subject_prefix,
-        suffix: &state.subject_suffix,
+        prefix: &state.config.list.subject_prefix,
+        suffix: &state.config.list.subject_suffix,
     };
 
-    let message = match comment.compose(&subject, &state.bot_address, &state.list_posting_address) {
+    let message = match comment.compose(
+        &subject,
+        &state.config.list.bot_address,
+        &state.config.list.posting_address,
+    ) {
         Ok(message) => message,
         Err(err) => {
             tracing::warn!(%err, %slug, "rejected a malformed comment submission");
@@ -357,8 +339,8 @@ async fn submit_comment(
 
     let pending = match state.outbox.enqueue(
         &slug,
-        &state.bot_address,
-        &state.list_posting_address,
+        &state.config.list.bot_address,
+        &state.config.list.posting_address,
         &message.formatted(),
     ) {
         Ok(pending) => pending,

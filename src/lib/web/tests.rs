@@ -5,6 +5,9 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
+use crate::config::{
+    ImapConfig, Limits, ListConfig, OutboxConfig, ServerConfig, SmtpConfig, StorageConfig,
+};
 use crate::sqlite_store::SqliteStore;
 
 use super::*;
@@ -96,6 +99,53 @@ fn state_with_ttl(
     )
 }
 
+// A fully-populated Config for tests: AppState only reads list/limits/outbox
+// off it, but Config itself always needs every section, so this fills the
+// rest (server/imap/smtp/storage) with unused placeholders. Callers mutate
+// the fields they actually care about.
+fn test_config() -> Config {
+    Config {
+        server: ServerConfig {
+            bind_address: "127.0.0.1:0".to_string(),
+        },
+        list: ListConfig {
+            bot_address: "bot@ourdomain.example".to_string(),
+            posting_address: "group@googlegroups.com".to_string(),
+            relay_comments: true,
+            show_email_link: true,
+            body_footer_regex: String::new(),
+            subject_prefix: String::new(),
+            subject_suffix: String::new(),
+            theme: "auto".to_string(),
+        },
+        imap: ImapConfig {
+            host: "imap.example.com".to_string(),
+            port: 993,
+            username: String::new(),
+            password: String::new(),
+        },
+        smtp: SmtpConfig {
+            host: "smtp.example.com".to_string(),
+            port: 587,
+            username: String::new(),
+            password: String::new(),
+        },
+        storage: StorageConfig {
+            path: ":memory:".to_string(),
+        },
+        outbox: OutboxConfig {
+            ttl_secs: NO_OUTBOX_EXPIRY,
+            sweep_interval_secs: TEST_SWEEP_INTERVAL_SECS,
+        },
+        limits: Limits {
+            max_concurrent_searches: 8,
+            max_concurrent_submits: 4,
+            cache_ttl_secs: NO_REFRESH_NEEDED,
+            refresh_interval_secs: 60,
+        },
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn state_with_subject(
     source: FixtureSource,
@@ -107,25 +157,20 @@ fn state_with_subject(
     subject_suffix: &str,
 ) -> AppState {
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let mut config = test_config();
+    config.list.relay_comments = relay_comments;
+    config.list.show_email_link = show_email_link;
+    config.list.subject_prefix = subject_prefix.to_string();
+    config.list.subject_suffix = subject_suffix.to_string();
+    config.limits.cache_ttl_secs = cache_ttl_secs;
     AppState::new(
         Arc::new(source),
         sink,
         store.clone(),
-        cache_ttl_secs,
-        60,
         store,
-        NO_OUTBOX_EXPIRY,
-        TEST_SWEEP_INTERVAL_SECS,
-        "bot@ourdomain.example".to_string(),
-        "group@googlegroups.com".to_string(),
-        relay_comments,
-        show_email_link,
-        "auto".to_string(),
         None,
-        subject_prefix.to_string(),
-        subject_suffix.to_string(),
-        8,
-        4,
+        "auto".to_string(),
+        config,
     )
 }
 
@@ -556,27 +601,18 @@ async fn a_stale_notice_shows_only_for_content_past_the_cache_ttl() {
 #[tokio::test]
 async fn the_refresh_tag_reflects_the_configured_interval() {
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let mut config = test_config();
+    config.limits.refresh_interval_secs = 45;
     let app_state = AppState::new(
         Arc::new(FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         }),
         Arc::new(FixtureSink::default()),
         store.clone(),
-        NO_REFRESH_NEEDED,
-        45,
         store,
-        NO_OUTBOX_EXPIRY,
-        TEST_SWEEP_INTERVAL_SECS,
-        "bot@ourdomain.example".to_string(),
-        "group@googlegroups.com".to_string(),
-        true,
-        true,
-        "auto".to_string(),
         None,
-        "".to_string(),
-        "".to_string(),
-        8,
-        4,
+        "auto".to_string(),
+        config,
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
 
@@ -628,25 +664,17 @@ async fn the_imap_search_uses_the_slug_wrapped_in_the_configured_prefix_and_suff
         searched: searched.clone(),
     };
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let mut config = test_config();
+    config.list.subject_prefix = "Blog Comments: ".to_string();
+    config.list.subject_suffix = " (blog)".to_string();
     let app_state = AppState::new(
         Arc::new(source),
         Arc::new(FixtureSink::default()),
         store.clone(),
-        NO_REFRESH_NEEDED,
-        60,
         store,
-        NO_OUTBOX_EXPIRY,
-        TEST_SWEEP_INTERVAL_SECS,
-        "bot@ourdomain.example".to_string(),
-        "group@googlegroups.com".to_string(),
-        true,
-        true,
-        "auto".to_string(),
         None,
-        "Blog Comments: ".to_string(),
-        " (blog)".to_string(),
-        8,
-        4,
+        "auto".to_string(),
+        config,
     );
     let app = router(app_state);
 
@@ -751,27 +779,18 @@ async fn a_failed_delivery_stays_queued_for_retry() {
 async fn an_expired_pending_comment_is_dropped_without_being_sent() {
     let sink = Arc::new(FixtureSink::default());
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let mut config = test_config();
+    config.outbox.ttl_secs = 0; // already expired the instant it's queued
     let app_state = AppState::new(
         Arc::new(FixtureSource {
             raw_messages: Vec::new(),
         }),
         sink.clone(),
         store.clone(),
-        NO_REFRESH_NEEDED,
-        60,
         store,
-        0, // already expired the instant it's queued
-        TEST_SWEEP_INTERVAL_SECS,
-        "bot@ourdomain.example".to_string(),
-        "group@googlegroups.com".to_string(),
-        true,
-        true,
-        "auto".to_string(),
         None,
-        "".to_string(),
-        "".to_string(),
-        8,
-        4,
+        "auto".to_string(),
+        config,
     );
     let outbox = app_state.outbox.clone();
     let app = router(app_state);

@@ -1,12 +1,15 @@
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{SmtpTransport, Transport};
 
+use crate::config::SmtpConfig;
 use crate::source::{BoxError, MailSink};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("could not build the SMTP transport")]
     Build(#[from] lettre::transport::smtp::Error),
+    #[error(transparent)]
+    Config(#[from] crate::config::Error),
 }
 
 pub struct SmtpSink {
@@ -14,15 +17,10 @@ pub struct SmtpSink {
 }
 
 impl SmtpSink {
-    pub fn new(
-        host: &str,
-        port: u16,
-        username: impl Into<String>,
-        password: impl Into<String>,
-    ) -> Result<Self, Error> {
-        let transport = SmtpTransport::starttls_relay(host)?
-            .port(port)
-            .credentials(Credentials::new(username.into(), password.into()))
+    pub fn new(config: &SmtpConfig) -> Result<Self, Error> {
+        let transport = SmtpTransport::starttls_relay(&config.host)?
+            .port(config.port)
+            .credentials(Credentials::new(config.username()?, config.password()?))
             .build();
         Ok(Self { transport })
     }

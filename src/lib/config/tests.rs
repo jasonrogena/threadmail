@@ -131,3 +131,85 @@ fn resolve_secret_is_none_when_neither_is_set() {
     assert_eq!(resolve_secret("", None), None);
     assert_eq!(resolve_secret("", Some(String::new())), None);
 }
+
+// These read real process env, so they only assert the fallback-to-file
+// path; they'd be flaky to write against env overrides (setting real env
+// vars in tests is unsound-adjacent under parallel execution), which is why
+// resolve_secret above is exercised directly as a pure function instead.
+#[test]
+fn imap_username_and_password_fall_back_to_the_file_when_no_env_is_set() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert_eq!(config.imap.username().unwrap(), "bot@ourdomain.example");
+    assert_eq!(config.imap.password().unwrap(), "app-password");
+}
+
+#[test]
+fn smtp_username_and_password_fall_back_to_the_file_when_no_env_is_set() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert_eq!(config.smtp.username().unwrap(), "bot@ourdomain.example");
+    assert_eq!(config.smtp.password().unwrap(), "app-password");
+}
+
+#[test]
+fn a_secret_missing_from_both_file_and_env_is_an_error() {
+    let toml_str = r#"
+        [server]
+        bind_address = "127.0.0.1:8080"
+        [list]
+        bot_address = "bot@example.com"
+        posting_address = "group@example.com"
+        [imap]
+        host = "imap.example.com"
+        port = 993
+        [smtp]
+        host = "smtp.example.com"
+        port = 587
+        [storage]
+        path = "/tmp/threadmail-test-store.db"
+    "#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let err = config.imap.username().unwrap_err();
+    assert!(matches!(
+        err,
+        Error::MissingSecret {
+            field: "imap.username",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn body_footer_regex_is_none_when_configured_empty() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert!(config.list.body_footer_regex().unwrap().is_none());
+}
+
+#[test]
+fn body_footer_regex_compiles_a_configured_pattern() {
+    let mut config = Config::load("tests/configs/good.toml").unwrap();
+    config.list.body_footer_regex = "^--\\s*$".to_string();
+    let regex = config.list.body_footer_regex().unwrap().unwrap();
+    assert!(regex.is_match("-- "));
+}
+
+#[test]
+fn body_footer_regex_errors_on_an_invalid_pattern() {
+    let mut config = Config::load("tests/configs/good.toml").unwrap();
+    config.list.body_footer_regex = "(".to_string();
+    let err = config.list.body_footer_regex().unwrap_err();
+    assert!(matches!(err, Error::InvalidRegex(_)));
+}
+
+#[test]
+fn theme_returns_the_configured_value_when_valid() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert_eq!(config.list.theme().unwrap(), "auto");
+}
+
+#[test]
+fn theme_errors_on_an_unrecognized_value() {
+    let mut config = Config::load("tests/configs/good.toml").unwrap();
+    config.list.theme = "sepia".to_string();
+    let err = config.list.theme().unwrap_err();
+    assert!(matches!(err, Error::InvalidTheme(theme) if theme == "sepia"));
+}

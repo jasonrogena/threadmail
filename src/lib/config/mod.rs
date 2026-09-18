@@ -1,6 +1,7 @@
 use std::fs;
 use std::io;
 
+use regex::Regex;
 use serde::Deserialize;
 
 #[cfg(test)]
@@ -12,6 +13,15 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("could not parse the config file as TOML")]
     Toml(#[from] toml::de::Error),
+    #[error("no value set for {field}: set it in the config file or {env_var}")]
+    MissingSecret {
+        field: &'static str,
+        env_var: &'static str,
+    },
+    #[error("invalid list.body_footer_regex")]
+    InvalidRegex(#[from] regex::Error),
+    #[error("list.theme must be auto, light, or dark, got {0:?}")]
+    InvalidTheme(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,22 +121,80 @@ impl Default for OutboxConfig {
 pub struct ImapConfig {
     pub host: String,
     pub port: u16,
-    // Can also come from THREADMAIL_IMAP_USERNAME/_PASSWORD; see resolve_secret.
+    // Can also come from THREADMAIL_IMAP_USERNAME/_PASSWORD; see username()/password().
     #[serde(default)]
     pub username: String,
     #[serde(default)]
     pub password: String,
 }
 
+impl ImapConfig {
+    pub fn username(&self) -> Result<String, Error> {
+        resolve_secret(&self.username, env("THREADMAIL_IMAP_USERNAME")).ok_or(
+            Error::MissingSecret {
+                field: "imap.username",
+                env_var: "THREADMAIL_IMAP_USERNAME",
+            },
+        )
+    }
+
+    pub fn password(&self) -> Result<String, Error> {
+        resolve_secret(&self.password, env("THREADMAIL_IMAP_PASSWORD")).ok_or(
+            Error::MissingSecret {
+                field: "imap.password",
+                env_var: "THREADMAIL_IMAP_PASSWORD",
+            },
+        )
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
-    // Can also come from THREADMAIL_SMTP_USERNAME/_PASSWORD; see resolve_secret.
+    // Can also come from THREADMAIL_SMTP_USERNAME/_PASSWORD; see username()/password().
     #[serde(default)]
     pub username: String,
     #[serde(default)]
     pub password: String,
+}
+
+impl SmtpConfig {
+    pub fn username(&self) -> Result<String, Error> {
+        resolve_secret(&self.username, env("THREADMAIL_SMTP_USERNAME")).ok_or(
+            Error::MissingSecret {
+                field: "smtp.username",
+                env_var: "THREADMAIL_SMTP_USERNAME",
+            },
+        )
+    }
+
+    pub fn password(&self) -> Result<String, Error> {
+        resolve_secret(&self.password, env("THREADMAIL_SMTP_PASSWORD")).ok_or(
+            Error::MissingSecret {
+                field: "smtp.password",
+                env_var: "THREADMAIL_SMTP_PASSWORD",
+            },
+        )
+    }
+}
+
+impl ListConfig {
+    pub fn body_footer_regex(&self) -> Result<Option<Regex>, Error> {
+        if self.body_footer_regex.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(Regex::new(&self.body_footer_regex)?))
+        }
+    }
+
+    pub fn theme(&self) -> Result<&str, Error> {
+        if ["auto", "light", "dark"].contains(&self.theme.as_str()) {
+            Ok(&self.theme)
+        } else {
+            Err(Error::InvalidTheme(self.theme.clone()))
+        }
+    }
 }
 
 impl Config {
@@ -136,9 +204,13 @@ impl Config {
     }
 }
 
-// Pure so it's testable without mutating real env state; the real
-// std::env::var call lives in main.rs. Env wins over the file when set.
-pub fn resolve_secret(from_file: &str, from_env: Option<String>) -> Option<String> {
+fn env(var: &str) -> Option<String> {
+    std::env::var(var).ok()
+}
+
+// Pure so it's directly testable; env() is the one impure caller.
+// Env wins over the file when set.
+fn resolve_secret(from_file: &str, from_env: Option<String>) -> Option<String> {
     from_env
         .filter(|v| !v.is_empty())
         .or_else(|| Some(from_file.to_string()).filter(|v| !v.is_empty()))

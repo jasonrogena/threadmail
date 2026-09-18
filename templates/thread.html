@@ -4,10 +4,12 @@
 {% if stale %}
 <p class="stale-notice">Checking for new comments&hellip;</p>
 {% endif %}
+<div class="thread-box">
 {{ root_html|safe }}
 {% if show_email_link %}
 <p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ mailto_subject|urlencode }}">Comment by email</a></p>
 {% endif %}
+</div>
 {% if allow_relay %}
 <p class="latency-notice">Submitted comments can take a few minutes to appear here.</p>
 {% endif %}
