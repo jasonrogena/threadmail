@@ -21,10 +21,10 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert_eq!(config.web.theme, Theme::Auto);
     assert_eq!(config.mailing_list.subject_prefix, "");
     assert_eq!(config.mailing_list.subject_suffix, "");
-    assert_eq!(config.web.refresh_interval_secs, 30);
+    assert_eq!(config.web.refresh_interval_secs, 60);
     assert_eq!(config.imap.max_concurrent_searches, 8);
     assert_eq!(config.smtp.max_concurrent_submits, 4);
-    assert_eq!(config.storage.incoming_message_ttl_secs, 300);
+    assert_eq!(config.storage.incoming_message_ttl_secs, 60);
     assert_eq!(config.storage.outgoing_message_ttl_secs, 3 * 60 * 60);
     assert_eq!(config.storage.outgoing_comment_sweep_interval_secs, 10);
 }
