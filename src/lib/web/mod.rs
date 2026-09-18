@@ -23,11 +23,31 @@ mod tests;
 
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEDUPE_WINDOW: Duration = Duration::from_secs(60);
+const OUTGOING_SWEEP_HEARTBEAT_GRACE: u32 = 3;
 
-// Everything here is just passed through from config (theme and
-// body_footer_regex included now that both are validated/compiled by their
-// own types at deserialize time), held whole in case other handlers need
-// fields of it later.
+// Mutated in place after the first tick; the Mutex is what makes that safe.
+struct SweepHeartbeat {
+    interval: Duration,
+    last_swept: Instant,
+}
+
+impl SweepHeartbeat {
+    fn now(interval: Duration) -> Self {
+        Self {
+            interval,
+            last_swept: Instant::now(),
+        }
+    }
+
+    fn record_sweep(&mut self) {
+        self.last_swept = Instant::now();
+    }
+
+    fn is_stalled(&self) -> bool {
+        self.last_swept.elapsed() > self.interval * OUTGOING_SWEEP_HEARTBEAT_GRACE
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     source: Arc<dyn MailSource>,
@@ -40,6 +60,8 @@ pub struct AppState {
     recent_submissions: Arc<Mutex<HashMap<u64, Instant>>>,
     refreshing: Arc<Mutex<HashSet<String>>>,
     sending: Arc<Mutex<HashSet<i64>>>,
+    // None until the worker's first tick; lets /healthz tell "never started" from "stalled".
+    last_outgoing_sweep: Arc<Mutex<Option<SweepHeartbeat>>>,
 }
 
 impl AppState {
@@ -63,6 +85,7 @@ impl AppState {
             recent_submissions: Arc::new(Mutex::new(HashMap::new())),
             refreshing: Arc::new(Mutex::new(HashSet::new())),
             sending: Arc::new(Mutex::new(HashSet::new())),
+            last_outgoing_sweep: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -80,13 +103,39 @@ pub fn router(state: AppState) -> Router {
     // Wildcard: a slug can be a full post path (e.g. "posts/my-post").
     Router::new()
         .route("/thread/{*slug}", get(show_thread).post(submit_comment))
+        .route("/healthz", get(healthz))
         .with_state(state)
 }
 
-// Runs for the life of the process: on the first tick this picks up whatever
-// was still pending from before a restart, and every tick after that retries
-// anything still waiting.
+// Skips IMAP/SMTP: those are already rate-limited to avoid hammering the mail provider.
+async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
+    if let Err(err) = state.outgoing_comments.pending() {
+        tracing::error!(%err, "healthz: could not reach the comment store");
+        return (StatusCode::SERVICE_UNAVAILABLE, "comment store unreachable");
+    }
+
+    match state.last_outgoing_sweep.lock().unwrap().as_ref() {
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "outgoing comment worker not running",
+        ),
+        Some(heartbeat) if heartbeat.is_stalled() => {
+            tracing::error!(
+                since_last_sweep = ?heartbeat.last_swept.elapsed(),
+                "healthz: outgoing comment worker looks stalled"
+            );
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "outgoing comment worker stalled",
+            )
+        }
+        Some(_) => (StatusCode::OK, "ok"),
+    }
+}
+
+// The first tick also catches up on anything still pending from before a restart.
 pub fn spawn_outgoing_comment_worker(state: AppState) {
+    let interval = Duration::from_secs(state.config.storage.outgoing_comment_sweep_interval_secs);
     tokio::spawn(async move {
         loop {
             match state.outgoing_comments.pending() {
@@ -97,10 +146,14 @@ pub fn spawn_outgoing_comment_worker(state: AppState) {
                 }
                 Err(err) => tracing::error!(%err, "failed to read the outgoing comment queue"),
             }
-            tokio::time::sleep(Duration::from_secs(
-                state.config.storage.outgoing_comment_sweep_interval_secs,
-            ))
-            .await;
+            {
+                let mut heartbeat = state.last_outgoing_sweep.lock().unwrap();
+                match heartbeat.as_mut() {
+                    Some(heartbeat) => heartbeat.record_sweep(),
+                    None => *heartbeat = Some(SweepHeartbeat::now(interval)),
+                }
+            }
+            tokio::time::sleep(interval).await;
         }
     });
 }
@@ -111,8 +164,7 @@ fn submission_key(slug: &str, in_reply_to: Option<&str>, name: &str, body: &str)
     hasher.finish()
 }
 
-// Guards against a slow request being re-clicked before it returns; there's
-// no JS here to disable the button after the first click.
+// Guards against a re-click before a slow request returns; there's no JS to disable the button.
 fn is_duplicate_submission(recent: &Mutex<HashMap<u64, Instant>>, key: u64) -> bool {
     let mut recent = recent.lock().unwrap();
     let now = Instant::now();
@@ -127,8 +179,7 @@ async fn acquire(semaphore: &Semaphore) -> Result<SemaphorePermit<'_>, StatusCod
         .map(|permit| permit.expect("semaphore is never closed"))
 }
 
-// Kicks off a background IMAP search for `slug` if one isn't already
-// running, and returns immediately so the caller can render from cache.
+// Returns immediately; the caller renders from cache while this runs.
 fn refresh_in_background(state: &AppState, slug: &str) {
     let newly_started = state.refreshing.lock().unwrap().insert(slug.to_string());
     if newly_started {
@@ -173,8 +224,7 @@ async fn run_refresh(state: AppState, slug: String) {
     state.refreshing.lock().unwrap().remove(&slug);
 }
 
-// Kicks off a background SMTP delivery attempt for a queued comment if one
-// isn't already running for it, and returns immediately.
+// Returns immediately; skips if a delivery attempt for this comment is already in flight.
 fn spawn_send(state: &AppState, pending: OutgoingComment) {
     let newly_started = state.sending.lock().unwrap().insert(pending.id);
     if newly_started {
@@ -303,8 +353,7 @@ async fn submit_comment(
         return Redirect::to(&format!("/thread/{slug}")).into_response();
     }
 
-    // Invalidated as soon as the write is accepted, not after it's relayed:
-    // the cache is wrong the moment we've committed to sending this comment.
+    // Invalidated now, not after relay: the cache is wrong the moment we commit to sending this.
     let _ = state.cache.invalidate(&slug);
 
     let author = Author {

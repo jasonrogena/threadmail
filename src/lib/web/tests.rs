@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
@@ -50,6 +50,29 @@ struct FailingSink;
 impl MailSink for FailingSink {
     fn submit(&self, _envelope: &Envelope, _raw: &[u8]) -> Result<(), crate::source::BoxError> {
         Err("the mail provider is unreachable".into())
+    }
+}
+
+// Always fails, to exercise the /healthz failure path deterministically.
+struct FailingStore;
+
+impl OutgoingCommentStore for FailingStore {
+    fn enqueue(
+        &self,
+        _slug: &str,
+        _from_address: &str,
+        _to_address: &str,
+        _raw: &[u8],
+    ) -> Result<OutgoingComment, crate::source::BoxError> {
+        Err("the comment store is unreachable".into())
+    }
+
+    fn pending(&self) -> Result<Vec<OutgoingComment>, crate::source::BoxError> {
+        Err("the comment store is unreachable".into())
+    }
+
+    fn remove(&self, _id: i64) -> Result<(), crate::source::BoxError> {
+        Err("the comment store is unreachable".into())
     }
 }
 
@@ -818,4 +841,89 @@ async fn the_outgoing_comment_worker_delivers_messages_left_over_from_a_previous
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn healthz_returns_ok_when_the_store_is_reachable() {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: Vec::new(),
+        },
+        Arc::new(FixtureSink::default()),
+    );
+    *app_state.last_outgoing_sweep.lock().unwrap() = Some(SweepHeartbeat::now(
+        Duration::from_secs(TEST_SWEEP_INTERVAL_SECS),
+    ));
+
+    let (status, body) = get_html(router(app_state), "/healthz").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "ok");
+}
+
+#[tokio::test]
+async fn healthz_returns_service_unavailable_when_the_store_is_unreachable() {
+    let cache = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let app_state = AppState::new(
+        Arc::new(FixtureSource {
+            raw_messages: Vec::new(),
+        }),
+        Arc::new(FixtureSink::default()),
+        cache,
+        Arc::new(FailingStore),
+        test_config(),
+    );
+
+    let (status, _) = get_html(router(app_state), "/healthz").await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn healthz_returns_service_unavailable_when_the_outgoing_worker_has_stalled() {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: Vec::new(),
+        },
+        Arc::new(FixtureSink::default()),
+    );
+    *app_state.last_outgoing_sweep.lock().unwrap() = Some(SweepHeartbeat {
+        interval: Duration::from_secs(TEST_SWEEP_INTERVAL_SECS),
+        last_swept: Instant::now() - Duration::from_secs(3600),
+    });
+
+    let (status, _) = get_html(router(app_state), "/healthz").await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn healthz_returns_service_unavailable_when_the_outgoing_worker_has_never_ticked() {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: Vec::new(),
+        },
+        Arc::new(FixtureSink::default()),
+    );
+
+    let (status, _) = get_html(router(app_state), "/healthz").await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn the_outgoing_worker_sets_its_heartbeat_on_each_tick() {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: Vec::new(),
+        },
+        Arc::new(FixtureSink::default()),
+    );
+    assert!(app_state.last_outgoing_sweep.lock().unwrap().is_none());
+
+    spawn_outgoing_comment_worker(app_state.clone());
+
+    wait_for(|| app_state.last_outgoing_sweep.lock().unwrap().is_some()).await;
+
+    assert!(app_state.last_outgoing_sweep.lock().unwrap().is_some());
 }
