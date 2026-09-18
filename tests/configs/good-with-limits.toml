@@ -1,31 +1,29 @@
 [server]
 bind_address = "127.0.0.1:8080"
 
-[list]
+[mailing_list]
 bot_address = "bot@ourdomain.example"
 posting_address = "group@googlegroups.com"
+
+[web]
+refresh_interval_secs = 90
 
 [imap]
 host = "imap.gmail.com"
 port = 993
 username = "bot@ourdomain.example"
 password = "app-password"
+max_concurrent_searches = 20
 
 [smtp]
 host = "smtp.gmail.com"
 port = 587
 username = "bot@ourdomain.example"
 password = "app-password"
+max_concurrent_submits = 2
 
 [storage]
 path = "/tmp/threadmail-test-store.db"
-
-[outbox]
-ttl_secs = 60
-sweep_interval_secs = 5
-
-[limits]
-max_concurrent_searches = 20
-max_concurrent_submits = 2
-cache_ttl_secs = 30
-refresh_interval_secs = 90
+incoming_message_ttl_secs = 30
+outgoing_message_ttl_secs = 60
+outgoing_comment_sweep_interval_secs = 5

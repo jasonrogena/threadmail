@@ -113,7 +113,7 @@ fn multiple_pending_messages_are_all_returned() {
 }
 
 #[test]
-fn the_cache_and_the_outbox_are_independent_within_the_same_file() {
+fn the_cache_and_outgoing_comments_are_independent_within_the_same_file() {
     let db = SqliteStore::open(":memory:").unwrap();
 
     db.store("my-post", &[b"cached".to_vec()]).unwrap();

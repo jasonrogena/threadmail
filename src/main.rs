@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use threadmail::config::{self, Config};
+use threadmail::config::Config;
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
 use threadmail::sqlite_store::SqliteStore;
-use threadmail::web::{AppState, router, spawn_outbox_worker};
+use threadmail::web::{AppState, router, spawn_outgoing_comment_worker};
 use tracing::Level;
 
 /// Static-site comments backed by a mailing list, not a database
@@ -62,21 +62,11 @@ async fn main() {
     }
 }
 
-fn or_exit<T>(result: Result<T, config::Error>) -> T {
-    result.unwrap_or_else(|err| {
-        tracing::error!(%err, "invalid configuration");
-        std::process::exit(1);
-    })
-}
-
 async fn serve(config_path: &str) {
     let config = Config::load(config_path).unwrap_or_else(|err| {
         tracing::error!(%err, path = config_path, "could not load config");
         std::process::exit(1);
     });
-
-    let body_footer_regex = or_exit(config.list.body_footer_regex());
-    let theme = or_exit(config.list.theme().map(str::to_string));
 
     let source = Arc::new(ImapSource::new(&config.imap).unwrap_or_else(|err| {
         tracing::error!(%err, "could not build the IMAP source");
@@ -95,17 +85,9 @@ async fn serve(config_path: &str) {
 
     let bind_address = config.server.bind_address.clone();
 
-    let state = AppState::new(
-        source,
-        sink,
-        store.clone(),
-        store,
-        body_footer_regex,
-        theme,
-        config,
-    );
+    let state = AppState::new(source, sink, store.clone(), store, config);
 
-    spawn_outbox_worker(state.clone());
+    spawn_outgoing_comment_worker(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await

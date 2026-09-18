@@ -2,7 +2,7 @@
 # The address (host:port) the HTTP server listens on.
 bind_address = "127.0.0.1:8080"
 
-[list]
+[mailing_list]
 # The bot account's own address. Used as the `From:` sender when relaying a
 # web-submitted comment; never shown to commenters as anything but the
 # technical sender ("<name> (via web) <bot_address>").
@@ -13,6 +13,22 @@ bot_address = "bot@ourdomain.example"
 # mailto: link on the rendered page points at.
 posting_address = "our-comments@googlegroups.com"
 
+# A regex matched against each comment's body; everything from the first
+# match onward is stripped before rendering. Useful for a mailing list
+# provider's own footer (e.g. an unsubscribe notice) that gets appended to
+# every message it relays. Optional, disabled (empty) by default.
+# body_footer_regex = '(?s)--\s*\nYou received this message.*'
+
+# Wrapped around the slug to form the actual email Subject used when
+# composing a web-relayed comment and searching IMAP for a thread; the slug
+# itself (routes, forms, the iframe src) never carries them. Optional,
+# empty (disabled) by default.
+# subject_prefix = "Blog Comments: "
+# subject_suffix = ""
+
+# How the rendered page behaves for visitors. Optional — this whole section
+# can be omitted to use the defaults shown below.
+[web]
 # Whether the no-JS web form relays comments into the mailing list. When
 # false, the page omits the comment form and posting to the comment
 # endpoint directly is rejected. Optional, defaults to true.
@@ -22,27 +38,19 @@ posting_address = "our-comments@googlegroups.com"
 # Independent of relay_comments. Optional, defaults to true.
 # show_email_link = true
 
-# A regex matched against each comment's body; everything from the first
-# match onward is stripped before rendering. Useful for a mailing list
-# provider's own footer (e.g. an unsubscribe notice) that gets appended to
-# every message it relays. Optional, disabled (empty) by default.
-# body_footer_regex = '(?s)--\s*\nYou received this message.*'
-
 # "auto" (follow the visitor's device), "light", or "dark". Optional,
 # defaults to "auto".
 # theme = "auto"
 
-# Wrapped around the slug to form the actual email Subject used when
-# composing a web-relayed comment and searching IMAP for a thread; the slug
-# itself (routes, forms, the iframe src) never carries them. Optional,
-# empty (disabled) by default.
-# subject_prefix = "Blog Comments: "
-# subject_suffix = ""
+# How often (in seconds) the rendered page reloads itself to check for new
+# comments. Independent of storage.incoming_message_ttl_secs below: every
+# page check is a cache hit, only some of which trigger a fresh IMAP
+# search. Optional, defaults to 30.
+# refresh_interval_secs = 30
 
 # Credentials for the bot account's own mailbox. The bot must be a normal
 # subscribed member of the mailing list, so every list message is delivered
-# here as a copy — no Google Groups API, no catch-all routing. A thread is
-# searched for here in the background; see cache_ttl_secs below.
+# here as a copy — no Google Groups API, no catch-all routing.
 [imap]
 host = "imap.gmail.com"
 port = 993
@@ -52,6 +60,10 @@ port = 993
 username = "bot@ourdomain.example"
 password = "an-app-password-not-the-account-password"
 
+# Cap on how many IMAP searches run at once, so a traffic spike can't
+# hammer the mail provider. Optional, defaults to 8.
+# max_concurrent_searches = 8
+
 # Credentials used to submit a web-relayed comment to the list.
 [smtp]
 host = "smtp.gmail.com"
@@ -60,36 +72,27 @@ port = 587
 username = "bot@ourdomain.example"
 password = "an-app-password-not-the-account-password"
 
-# Backs both the comment cache and the outgoing-comment outbox (see [outbox]
-# below). A web-submitted comment is queued here immediately and relayed to
-# SMTP in the background, so the visitor doesn't wait on the mail provider;
-# this file is also what survives a restart so a pending comment isn't lost.
+# Cap on how many SMTP submissions run at once. Optional, defaults to 4.
+# max_concurrent_submits = 4
+
+# Backs both the incoming comment cache and the outgoing comment queue. A
+# web-submitted comment is queued here immediately and relayed to SMTP in
+# the background, so the visitor doesn't wait on the mail provider; this
+# file is also what survives a restart so a pending comment isn't lost.
 # Must be a writable, persistent location (e.g. a mounted volume) — the
 # filename itself is up to you.
 [storage]
 path = "/var/lib/threadmail/threadmail.db"
 
-# How long an undelivered comment is retried before being dropped, and how
-# often the background job retries whatever's still pending. Optional —
-# this whole section can be omitted to use the defaults shown below.
-[outbox]
-# ttl_secs = 10800
-# sweep_interval_secs = 10
+# How long a cached incoming search result is served before a fresh IMAP
+# search is triggered in the background. The cache is never authoritative.
+# Optional, defaults to 300.
+# incoming_message_ttl_secs = 300
 
-# Caps on how many IMAP searches / SMTP submissions run at once, so a
-# traffic spike can't hammer the mail provider. Optional — this whole
-# section can be omitted to use the defaults shown below.
-[limits]
-max_concurrent_searches = 8
-max_concurrent_submits = 4
+# How long an outgoing (submitted) comment is retried before being dropped
+# undelivered. Optional, defaults to 10800 (3 hours).
+# outgoing_message_ttl_secs = 10800
 
-# How long a page can be served from the local comment cache before a fresh
-# IMAP search is triggered in the background. Separate from
-# refresh_interval_secs below: every page check is a cache hit, but only
-# ones past this TTL trigger a search. The cache is in-memory and never
-# authoritative.
-# cache_ttl_secs = 300
-
-# How often (in seconds) the rendered page reloads itself to check for new
-# comments. Independent of cache_ttl_secs above.
-# refresh_interval_secs = 30
+# How often the background job retries whatever outgoing comments are
+# still queued. Optional, defaults to 10.
+# outgoing_comment_sweep_interval_secs = 10

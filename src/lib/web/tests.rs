@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
 use crate::config::{
-    ImapConfig, Limits, ListConfig, OutboxConfig, ServerConfig, SmtpConfig, StorageConfig,
+    ImapConfig, MailingListConfig, ServerConfig, SmtpConfig, StorageConfig, Theme, WebConfig,
 };
 use crate::sqlite_store::SqliteStore;
 
@@ -45,7 +45,7 @@ impl MailSink for FixtureSink {
     }
 }
 
-// Always fails, to exercise the outbox's retry/expiry paths deterministically.
+// Always fails, to exercise the outgoing comment queue's retry/expiry paths deterministically.
 #[derive(Default)]
 struct FailingSink;
 
@@ -86,21 +86,21 @@ fn state_with_ttl(
     sink: Arc<dyn MailSink>,
     relay_comments: bool,
     show_email_link: bool,
-    cache_ttl_secs: u64,
+    incoming_message_ttl_secs: u64,
 ) -> AppState {
     state_with_subject(
         source,
         sink,
         relay_comments,
         show_email_link,
-        cache_ttl_secs,
+        incoming_message_ttl_secs,
         "",
         "",
     )
 }
 
-// A fully-populated Config for tests: AppState only reads list/limits/outbox
-// off it, but Config itself always needs every section, so this fills the
+// A fully-populated Config for tests: AppState only reads a handful of its
+// fields, but Config itself always needs every section, so this fills the
 // rest (server/imap/smtp/storage) with unused placeholders. Callers mutate
 // the fields they actually care about.
 fn test_config() -> Config {
@@ -108,40 +108,38 @@ fn test_config() -> Config {
         server: ServerConfig {
             bind_address: "127.0.0.1:0".to_string(),
         },
-        list: ListConfig {
+        mailing_list: MailingListConfig {
             bot_address: "bot@ourdomain.example".to_string(),
             posting_address: "group@googlegroups.com".to_string(),
-            relay_comments: true,
-            show_email_link: true,
-            body_footer_regex: String::new(),
+            body_footer_regex: None,
             subject_prefix: String::new(),
             subject_suffix: String::new(),
-            theme: "auto".to_string(),
+        },
+        web: WebConfig {
+            relay_comments: true,
+            show_email_link: true,
+            theme: Theme::Auto,
+            refresh_interval_secs: 60,
         },
         imap: ImapConfig {
             host: "imap.example.com".to_string(),
             port: 993,
             username: String::new(),
             password: String::new(),
+            max_concurrent_searches: 8,
         },
         smtp: SmtpConfig {
             host: "smtp.example.com".to_string(),
             port: 587,
             username: String::new(),
             password: String::new(),
+            max_concurrent_submits: 4,
         },
         storage: StorageConfig {
             path: ":memory:".to_string(),
-        },
-        outbox: OutboxConfig {
-            ttl_secs: NO_OUTBOX_EXPIRY,
-            sweep_interval_secs: TEST_SWEEP_INTERVAL_SECS,
-        },
-        limits: Limits {
-            max_concurrent_searches: 8,
-            max_concurrent_submits: 4,
-            cache_ttl_secs: NO_REFRESH_NEEDED,
-            refresh_interval_secs: 60,
+            incoming_message_ttl_secs: NO_REFRESH_NEEDED,
+            outgoing_message_ttl_secs: NO_OUTBOX_EXPIRY,
+            outgoing_comment_sweep_interval_secs: TEST_SWEEP_INTERVAL_SECS,
         },
     }
 }
@@ -152,26 +150,18 @@ fn state_with_subject(
     sink: Arc<dyn MailSink>,
     relay_comments: bool,
     show_email_link: bool,
-    cache_ttl_secs: u64,
+    incoming_message_ttl_secs: u64,
     subject_prefix: &str,
     subject_suffix: &str,
 ) -> AppState {
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     let mut config = test_config();
-    config.list.relay_comments = relay_comments;
-    config.list.show_email_link = show_email_link;
-    config.list.subject_prefix = subject_prefix.to_string();
-    config.list.subject_suffix = subject_suffix.to_string();
-    config.limits.cache_ttl_secs = cache_ttl_secs;
-    AppState::new(
-        Arc::new(source),
-        sink,
-        store.clone(),
-        store,
-        None,
-        "auto".to_string(),
-        config,
-    )
+    config.web.relay_comments = relay_comments;
+    config.web.show_email_link = show_email_link;
+    config.mailing_list.subject_prefix = subject_prefix.to_string();
+    config.mailing_list.subject_suffix = subject_suffix.to_string();
+    config.storage.incoming_message_ttl_secs = incoming_message_ttl_secs;
+    AppState::new(Arc::new(source), sink, store.clone(), store, config)
 }
 
 // Pre-warms the cache as if an earlier request had already resolved this
@@ -602,7 +592,7 @@ async fn a_stale_notice_shows_only_for_content_past_the_cache_ttl() {
 async fn the_refresh_tag_reflects_the_configured_interval() {
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     let mut config = test_config();
-    config.limits.refresh_interval_secs = 45;
+    config.web.refresh_interval_secs = 45;
     let app_state = AppState::new(
         Arc::new(FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
@@ -610,8 +600,6 @@ async fn the_refresh_tag_reflects_the_configured_interval() {
         Arc::new(FixtureSink::default()),
         store.clone(),
         store,
-        None,
-        "auto".to_string(),
         config,
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
@@ -665,15 +653,13 @@ async fn the_imap_search_uses_the_slug_wrapped_in_the_configured_prefix_and_suff
     };
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     let mut config = test_config();
-    config.list.subject_prefix = "Blog Comments: ".to_string();
-    config.list.subject_suffix = " (blog)".to_string();
+    config.mailing_list.subject_prefix = "Blog Comments: ".to_string();
+    config.mailing_list.subject_suffix = " (blog)".to_string();
     let app_state = AppState::new(
         Arc::new(source),
         Arc::new(FixtureSink::default()),
         store.clone(),
         store,
-        None,
-        "auto".to_string(),
         config,
     );
     let app = router(app_state);
@@ -720,7 +706,7 @@ async fn a_successful_submission_triggers_an_immediate_re_search_so_the_reply_sh
 }
 
 #[tokio::test]
-async fn a_queued_comment_is_removed_from_the_outbox_once_delivered() {
+async fn a_queued_comment_is_removed_from_outgoing_comments_once_delivered() {
     let sink = Arc::new(FixtureSink::default());
     let app_state = state(
         FixtureSource {
@@ -728,7 +714,7 @@ async fn a_queued_comment_is_removed_from_the_outbox_once_delivered() {
         },
         sink,
     );
-    let outbox = app_state.outbox.clone();
+    let outgoing_comments = app_state.outgoing_comments.clone();
     let app = router(app_state);
 
     app.oneshot(
@@ -742,9 +728,9 @@ async fn a_queued_comment_is_removed_from_the_outbox_once_delivered() {
     .await
     .unwrap();
 
-    wait_for(|| outbox.pending().unwrap().is_empty()).await;
+    wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
 
-    assert!(outbox.pending().unwrap().is_empty());
+    assert!(outgoing_comments.pending().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -755,7 +741,7 @@ async fn a_failed_delivery_stays_queued_for_retry() {
         },
         Arc::new(FailingSink),
     );
-    let outbox = app_state.outbox.clone();
+    let outgoing_comments = app_state.outgoing_comments.clone();
     let app = router(app_state);
 
     app.oneshot(
@@ -772,7 +758,7 @@ async fn a_failed_delivery_stays_queued_for_retry() {
     // Give the first (failing) attempt a moment to run and settle.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    assert_eq!(outbox.pending().unwrap().len(), 1);
+    assert_eq!(outgoing_comments.pending().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -780,7 +766,7 @@ async fn an_expired_pending_comment_is_dropped_without_being_sent() {
     let sink = Arc::new(FixtureSink::default());
     let store = Arc::new(SqliteStore::open(":memory:").unwrap());
     let mut config = test_config();
-    config.outbox.ttl_secs = 0; // already expired the instant it's queued
+    config.storage.outgoing_message_ttl_secs = 0; // already expired the instant it's queued
     let app_state = AppState::new(
         Arc::new(FixtureSource {
             raw_messages: Vec::new(),
@@ -788,11 +774,9 @@ async fn an_expired_pending_comment_is_dropped_without_being_sent() {
         sink.clone(),
         store.clone(),
         store,
-        None,
-        "auto".to_string(),
         config,
     );
-    let outbox = app_state.outbox.clone();
+    let outgoing_comments = app_state.outgoing_comments.clone();
     let app = router(app_state);
 
     app.oneshot(
@@ -806,14 +790,14 @@ async fn an_expired_pending_comment_is_dropped_without_being_sent() {
     .await
     .unwrap();
 
-    wait_for(|| outbox.pending().unwrap().is_empty()).await;
+    wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
 
-    assert!(outbox.pending().unwrap().is_empty());
+    assert!(outgoing_comments.pending().unwrap().is_empty());
     assert!(sink.sent.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn the_outbox_worker_delivers_messages_left_over_from_a_previous_run() {
+async fn the_outgoing_comment_worker_delivers_messages_left_over_from_a_previous_run() {
     let sink = Arc::new(FixtureSink::default());
     let app_state = state(
         FixtureSource {
@@ -824,7 +808,7 @@ async fn the_outbox_worker_delivers_messages_left_over_from_a_previous_run() {
     // Simulate a comment that was queued before a restart, with no HTTP
     // request involved this time.
     app_state
-        .outbox
+        .outgoing_comments
         .enqueue(
             "my-post",
             "bot@ourdomain.example",
@@ -833,7 +817,7 @@ async fn the_outbox_worker_delivers_messages_left_over_from_a_previous_run() {
         )
         .unwrap();
 
-    spawn_outbox_worker(app_state);
+    spawn_outgoing_comment_worker(app_state);
 
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 

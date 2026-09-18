@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::{MailingListConfig, Theme, WebConfig};
 use crate::mail::{Author, Message};
 
 fn msg(id: &str, name: &str, body: &str) -> Message {
@@ -15,17 +16,31 @@ fn msg(id: &str, name: &str, body: &str) -> Message {
     }
 }
 
-fn options(allow_relay: bool, show_email_link: bool) -> Options<'static> {
+fn mailing_list_config() -> MailingListConfig {
+    MailingListConfig {
+        bot_address: "bot@example.com".to_string(),
+        posting_address: "group@example.com".to_string(),
+        body_footer_regex: None,
+        subject_prefix: String::new(),
+        subject_suffix: String::new(),
+    }
+}
+
+fn web_config(relay_comments: bool, show_email_link: bool) -> WebConfig {
+    WebConfig {
+        relay_comments,
+        show_email_link,
+        theme: Theme::Auto,
+        refresh_interval_secs: 60,
+    }
+}
+
+fn options<'a>(mailing_list: &'a MailingListConfig, web: &'a WebConfig) -> Options<'a> {
     Options {
         comment_action: "/thread/my-post/comment",
-        mailto_address: "group@example.com",
-        allow_relay,
-        show_email_link,
-        theme: "auto",
-        refresh_interval_secs: 60,
+        mailing_list,
+        web,
         stale: false,
-        subject_prefix: "",
-        subject_suffix: "",
     }
 }
 
@@ -38,8 +53,10 @@ fn escapes_attacker_controlled_content() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    let html = thread.render(&options(true, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(!html.contains("<script>"));
     assert!(html.contains("&#60;script&#62;"));
@@ -58,8 +75,10 @@ fn nests_replies_and_carries_message_id_for_threaded_replies() {
             }],
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    let html = thread.render(&options(true, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("<ol class=\"replies\">"));
     assert!(html.contains("value=\"root\""));
@@ -75,8 +94,10 @@ fn includes_a_mailto_hint_with_the_slug_as_subject() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    let html = thread.render(&options(true, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("mailto:group@example.com?subject=my-post"));
 }
@@ -90,11 +111,12 @@ fn the_mailto_subject_carries_the_configured_prefix_and_suffix() {
             replies: Vec::new(),
         },
     };
-    let mut opts = options(true, true);
-    opts.subject_prefix = "Blog Comments: ";
-    opts.subject_suffix = " (blog)";
+    let mut mailing_list = mailing_list_config();
+    mailing_list.subject_prefix = "Blog Comments: ".to_string();
+    mailing_list.subject_suffix = " (blog)".to_string();
+    let web = web_config(true, true);
 
-    let html = thread.render(&opts);
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("subject=Blog%20Comments%3A%20my-post%20%28blog%29"));
 }
@@ -108,8 +130,10 @@ fn never_renders_a_real_email_address_for_a_commenter() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    let html = thread.render(&options(true, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("Alice"));
 }
@@ -123,8 +147,10 @@ fn omits_comment_forms_when_relay_is_disabled() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(false, true);
 
-    let html = thread.render(&options(false, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(!html.contains("<form"));
     assert!(html.contains("mailto:"));
@@ -139,8 +165,10 @@ fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, false);
 
-    let html = thread.render(&options(true, false));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("<form"));
     assert!(!html.contains("mailto:"));
@@ -148,7 +176,10 @@ fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
 
 #[test]
 fn empty_offers_a_top_level_form_replying_to_nothing_when_relay_is_enabled() {
-    let html = empty("my-post", &options(true, true));
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+
+    let html = empty("my-post", &options(&mailing_list, &web));
 
     assert!(html.contains("No comments yet"));
     assert!(html.contains("name=\"in_reply_to\" value=\"\""));
@@ -156,14 +187,19 @@ fn empty_offers_a_top_level_form_replying_to_nothing_when_relay_is_enabled() {
 
 #[test]
 fn empty_omits_the_form_when_relay_is_disabled() {
-    let html = empty("my-post", &options(false, true));
+    let mailing_list = mailing_list_config();
+    let web = web_config(false, true);
+
+    let html = empty("my-post", &options(&mailing_list, &web));
 
     assert!(!html.contains("<form"));
 }
 
 #[test]
 fn empty_does_not_claim_no_comments_while_stale() {
-    let mut stale = options(true, true);
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+    let mut stale = options(&mailing_list, &web);
     stale.stale = true;
 
     let html = empty("my-post", &stale);
@@ -183,19 +219,26 @@ fn shows_a_persistent_latency_notice_only_when_relay_is_enabled() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let relay_on = web_config(true, true);
+    let relay_off = web_config(false, true);
 
     assert!(
         thread
-            .render(&options(true, true))
+            .render(&options(&mailing_list, &relay_on))
             .contains("class=\"latency-notice\"")
     );
     assert!(
         !thread
-            .render(&options(false, true))
+            .render(&options(&mailing_list, &relay_off))
             .contains("class=\"latency-notice\"")
     );
-    assert!(empty("my-post", &options(true, true)).contains("class=\"latency-notice\""));
-    assert!(!empty("my-post", &options(false, true)).contains("class=\"latency-notice\""));
+    assert!(
+        empty("my-post", &options(&mailing_list, &relay_on)).contains("class=\"latency-notice\"")
+    );
+    assert!(
+        !empty("my-post", &options(&mailing_list, &relay_off)).contains("class=\"latency-notice\"")
+    );
 }
 
 #[test]
@@ -207,8 +250,10 @@ fn reply_form_is_collapsed_by_default() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    let html = thread.render(&options(true, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("<details class=\"reply-toggle\">"));
     assert!(!html.contains("<details class=\"reply-toggle\" open"));
@@ -224,10 +269,11 @@ fn auto_theme_defers_to_the_device_via_media_query() {
             replies: Vec::new(),
         },
     };
-    let mut opts = options(true, true);
-    opts.theme = "auto";
+    let mailing_list = mailing_list_config();
+    let mut web = web_config(true, true);
+    web.theme = Theme::Auto;
 
-    let html = thread.render(&opts);
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("color-scheme: light dark;"));
     assert!(html.contains("@media (prefers-color-scheme: dark)"));
@@ -242,10 +288,11 @@ fn light_theme_is_forced_regardless_of_device() {
             replies: Vec::new(),
         },
     };
-    let mut opts = options(true, true);
-    opts.theme = "light";
+    let mailing_list = mailing_list_config();
+    let mut web = web_config(true, true);
+    web.theme = Theme::Light;
 
-    let html = thread.render(&opts);
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("color-scheme: light;"));
     assert!(!html.contains("@media (prefers-color-scheme: dark)"));
@@ -260,10 +307,11 @@ fn dark_theme_is_forced_regardless_of_device() {
             replies: Vec::new(),
         },
     };
-    let mut opts = options(true, true);
-    opts.theme = "dark";
+    let mailing_list = mailing_list_config();
+    let mut web = web_config(true, true);
+    web.theme = Theme::Dark;
 
-    let html = thread.render(&opts);
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("color-scheme: dark;"));
     assert!(html.contains("--tm-bg: #0f172a;"));
@@ -279,8 +327,10 @@ fn each_comment_gets_an_initial_avatar_and_an_anchor() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    let html = thread.render(&options(true, true));
+    let html = thread.render(&options(&mailing_list, &web));
 
     assert!(html.contains("id=\"c-root\""));
     assert!(html.contains("data-initial=\"A\""));
@@ -295,13 +345,15 @@ fn always_includes_a_periodic_refresh_tag() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
     assert!(
         thread
-            .render(&options(true, true))
+            .render(&options(&mailing_list, &web))
             .contains("http-equiv=\"refresh\"")
     );
-    assert!(empty("my-post", &options(true, true)).contains("http-equiv=\"refresh\""));
+    assert!(empty("my-post", &options(&mailing_list, &web)).contains("http-equiv=\"refresh\""));
 }
 
 #[test]
@@ -313,11 +365,16 @@ fn the_refresh_tag_uses_the_configured_interval() {
             replies: Vec::new(),
         },
     };
-    let mut opts = options(true, true);
-    opts.refresh_interval_secs = 45;
+    let mailing_list = mailing_list_config();
+    let mut web = web_config(true, true);
+    web.refresh_interval_secs = 45;
 
-    assert!(thread.render(&opts).contains("content=\"45\""));
-    assert!(empty("my-post", &opts).contains("content=\"45\""));
+    assert!(
+        thread
+            .render(&options(&mailing_list, &web))
+            .contains("content=\"45\"")
+    );
+    assert!(empty("my-post", &options(&mailing_list, &web)).contains("content=\"45\""));
 }
 
 #[test]
@@ -329,17 +386,19 @@ fn shows_a_stale_notice_only_when_the_content_is_past_its_ttl() {
             replies: Vec::new(),
         },
     };
-    let mut stale = options(true, true);
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+    let mut stale = options(&mailing_list, &web);
     stale.stale = true;
 
     assert!(thread.render(&stale).contains("class=\"stale-notice\""));
     assert!(
         !thread
-            .render(&options(true, true))
+            .render(&options(&mailing_list, &web))
             .contains("class=\"stale-notice\"")
     );
     assert!(empty("my-post", &stale).contains("class=\"stale-notice\""));
-    assert!(!empty("my-post", &options(true, true)).contains("class=\"stale-notice\""));
+    assert!(!empty("my-post", &options(&mailing_list, &web)).contains("class=\"stale-notice\""));
 }
 
 #[test]
@@ -351,10 +410,16 @@ fn escapes_the_slug_in_both_render_and_empty() {
             replies: Vec::new(),
         },
     };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
 
-    assert!(!thread.render(&options(true, true)).contains("<script>"));
     assert!(
-        !empty("<script>", &options(true, true))
+        !thread
+            .render(&options(&mailing_list, &web))
+            .contains("<script>")
+    );
+    assert!(
+        !empty("<script>", &options(&mailing_list, &web))
             .contains("<section class=\"thread\" data-slug=\"<script>\"")
     );
 }

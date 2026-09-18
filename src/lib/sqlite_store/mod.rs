@@ -19,9 +19,10 @@ pub enum Error {
     Sqlite(#[from] rusqlite::Error),
 }
 
-// One file backs both the comment cache and the outgoing-comment outbox:
-// the cache is never authoritative and could be wiped on restart without
-// harm, but the outbox must survive one, so the file as a whole is durable.
+// One file backs both the incoming comment cache and the outgoing comment
+// queue: the cache is never authoritative and could be wiped on restart
+// without harm, but the outgoing queue must survive one, so the file as a
+// whole is durable.
 pub struct SqliteStore {
     conn: Mutex<Connection>,
 }

@@ -18,23 +18,17 @@ pub enum Error {
         field: &'static str,
         env_var: &'static str,
     },
-    #[error("invalid list.body_footer_regex")]
-    InvalidRegex(#[from] regex::Error),
-    #[error("list.theme must be auto, light, or dark, got {0:?}")]
-    InvalidTheme(String),
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
-    pub list: ListConfig,
+    pub mailing_list: MailingListConfig,
+    #[serde(default)]
+    pub web: WebConfig,
     pub imap: ImapConfig,
     pub smtp: SmtpConfig,
     pub storage: StorageConfig,
-    #[serde(default)]
-    pub outbox: OutboxConfig,
-    #[serde(default)]
-    pub limits: Limits,
 }
 
 fn enabled() -> bool {
@@ -47,74 +41,114 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ListConfig {
+pub struct MailingListConfig {
     pub bot_address: String,
     pub posting_address: String,
-    #[serde(default = "enabled")]
-    pub relay_comments: bool,
-    #[serde(default = "enabled")]
-    pub show_email_link: bool,
-    // Everything from the first match onward is stripped from bodies; empty disables it.
-    #[serde(default)]
-    pub body_footer_regex: String,
+    // Everything from the first match onward is stripped from bodies; empty
+    // (or omitted) disables it. Compiled at load time so a bad pattern
+    // fails fast instead of surfacing lazily on first use.
+    #[serde(default, deserialize_with = "deserialize_body_footer_regex")]
+    pub body_footer_regex: Option<Regex>,
     // Prepended/appended to the slug when building a Subject; empty disables.
     #[serde(default)]
     pub subject_prefix: String,
     #[serde(default)]
     pub subject_suffix: String,
-    // "auto" (follow the visitor's device), "light", or "dark".
-    #[serde(default = "auto_theme")]
-    pub theme: String,
 }
 
-fn auto_theme() -> String {
-    "auto".to_string()
+fn deserialize_body_footer_regex<'de, D>(deserializer: D) -> Result<Option<Regex>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    if raw.is_empty() {
+        Ok(None)
+    } else {
+        Regex::new(&raw).map(Some).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct Limits {
-    pub max_concurrent_searches: usize,
-    pub max_concurrent_submits: usize,
-    // How long a cached search result is served before a fresh IMAP search
-    // is triggered in the background.
-    pub cache_ttl_secs: u64,
+pub struct WebConfig {
+    #[serde(default = "enabled")]
+    pub relay_comments: bool,
+    #[serde(default = "enabled")]
+    pub show_email_link: bool,
+    #[serde(default)]
+    pub theme: Theme,
     // How often the rendered page reloads itself to check for new comments.
+    #[serde(default = "default_refresh_interval_secs")]
     pub refresh_interval_secs: u64,
 }
 
-impl Default for Limits {
+fn default_refresh_interval_secs() -> u64 {
+    30
+}
+
+impl Default for WebConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_searches: 8,
-            max_concurrent_submits: 4,
-            cache_ttl_secs: 300,
-            refresh_interval_secs: 30,
+            relay_comments: enabled(),
+            show_email_link: enabled(),
+            theme: Theme::default(),
+            refresh_interval_secs: default_refresh_interval_secs(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+impl Theme {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Theme::Auto => "auto",
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
+}
+
+impl std::fmt::Display for Theme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct StorageConfig {
-    // Backs both the comment cache and the outgoing-comment outbox; must be
-    // a writable, persistent location (e.g. a mounted volume).
+    // Backs both the incoming comment cache and the outgoing comment queue;
+    // must be a writable, persistent location (e.g. a mounted volume).
     pub path: String,
+    // How long a cached incoming search result is served before a fresh
+    // IMAP search is triggered in the background.
+    #[serde(default = "default_incoming_message_ttl_secs")]
+    pub incoming_message_ttl_secs: u64,
+    // How long an outgoing (submitted) comment stays queued for retry
+    // before being dropped undelivered.
+    #[serde(default = "default_outgoing_message_ttl_secs")]
+    pub outgoing_message_ttl_secs: u64,
+    // How often the outgoing comment worker retries whatever's still queued.
+    #[serde(default = "default_outgoing_comment_sweep_interval_secs")]
+    pub outgoing_comment_sweep_interval_secs: u64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct OutboxConfig {
-    pub ttl_secs: u64,
-    pub sweep_interval_secs: u64,
+fn default_incoming_message_ttl_secs() -> u64 {
+    300
 }
 
-impl Default for OutboxConfig {
-    fn default() -> Self {
-        Self {
-            ttl_secs: 3 * 60 * 60,
-            sweep_interval_secs: 10,
-        }
-    }
+fn default_outgoing_message_ttl_secs() -> u64 {
+    3 * 60 * 60
+}
+
+fn default_outgoing_comment_sweep_interval_secs() -> u64 {
+    10
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,6 +160,12 @@ pub struct ImapConfig {
     pub username: String,
     #[serde(default)]
     pub password: String,
+    #[serde(default = "default_max_concurrent_searches")]
+    pub max_concurrent_searches: usize,
+}
+
+fn default_max_concurrent_searches() -> usize {
+    8
 }
 
 impl ImapConfig {
@@ -157,6 +197,12 @@ pub struct SmtpConfig {
     pub username: String,
     #[serde(default)]
     pub password: String,
+    #[serde(default = "default_max_concurrent_submits")]
+    pub max_concurrent_submits: usize,
+}
+
+fn default_max_concurrent_submits() -> usize {
+    4
 }
 
 impl SmtpConfig {
@@ -176,24 +222,6 @@ impl SmtpConfig {
                 env_var: "THREADMAIL_SMTP_PASSWORD",
             },
         )
-    }
-}
-
-impl ListConfig {
-    pub fn body_footer_regex(&self) -> Result<Option<Regex>, Error> {
-        if self.body_footer_regex.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(Regex::new(&self.body_footer_regex)?))
-        }
-    }
-
-    pub fn theme(&self) -> Result<&str, Error> {
-        if ["auto", "light", "dark"].contains(&self.theme.as_str()) {
-            Ok(&self.theme)
-        } else {
-            Err(Error::InvalidTheme(self.theme.clone()))
-        }
     }
 }
 

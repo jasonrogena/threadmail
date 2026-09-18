@@ -1,7 +1,7 @@
 [server]
 bind_address = "127.0.0.1:8080"
 
-[list]
+[mailing_list]
 bot_address = "bot@ourdomain.example"
 posting_address = "group@googlegroups.com"
 

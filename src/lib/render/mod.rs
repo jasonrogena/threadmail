@@ -1,5 +1,6 @@
 use askama::Template;
 
+use crate::config::{MailingListConfig, WebConfig};
 use crate::mail::{Author, Subject};
 use crate::thread::{Node, Thread};
 
@@ -8,14 +9,9 @@ mod tests;
 
 pub struct Options<'a> {
     pub comment_action: &'a str,
-    pub mailto_address: &'a str,
-    pub allow_relay: bool,
-    pub show_email_link: bool,
-    pub theme: &'a str,
-    pub refresh_interval_secs: u64,
+    pub mailing_list: &'a MailingListConfig,
+    pub web: &'a WebConfig,
     pub stale: bool,
-    pub subject_prefix: &'a str,
-    pub subject_suffix: &'a str,
 }
 
 #[derive(Template)]
@@ -81,18 +77,18 @@ impl Thread {
         let root_html = self.root.render(options);
         ThreadTemplate {
             slug: &self.slug,
-            style_html: style(options.theme),
+            style_html: style(options.web.theme.as_str()),
             root_html,
-            mailto_address: options.mailto_address,
+            mailto_address: &options.mailing_list.posting_address,
             mailto_subject: Subject {
                 slug: &self.slug,
-                prefix: options.subject_prefix,
-                suffix: options.subject_suffix,
+                prefix: &options.mailing_list.subject_prefix,
+                suffix: &options.mailing_list.subject_suffix,
             }
             .to_string(),
-            show_email_link: options.show_email_link,
-            allow_relay: options.allow_relay,
-            refresh_interval_secs: options.refresh_interval_secs,
+            show_email_link: options.web.show_email_link,
+            allow_relay: options.web.relay_comments,
+            refresh_interval_secs: options.web.refresh_interval_secs,
             stale: options.stale,
         }
         .render()
@@ -101,25 +97,25 @@ impl Thread {
 }
 
 pub fn empty(slug: &str, options: &Options) -> String {
-    let form_html = if options.allow_relay {
+    let form_html = if options.web.relay_comments {
         comment_form(options.comment_action, "", "Leave a comment")
     } else {
         String::new()
     };
     EmptyTemplate {
         slug,
-        style_html: style(options.theme),
+        style_html: style(options.web.theme.as_str()),
         form_html,
-        mailto_address: options.mailto_address,
+        mailto_address: &options.mailing_list.posting_address,
         mailto_subject: Subject {
             slug,
-            prefix: options.subject_prefix,
-            suffix: options.subject_suffix,
+            prefix: &options.mailing_list.subject_prefix,
+            suffix: &options.mailing_list.subject_suffix,
         }
         .to_string(),
-        show_email_link: options.show_email_link,
-        allow_relay: options.allow_relay,
-        refresh_interval_secs: options.refresh_interval_secs,
+        show_email_link: options.web.show_email_link,
+        allow_relay: options.web.relay_comments,
+        refresh_interval_secs: options.web.refresh_interval_secs,
         stale: options.stale,
     }
     .render()
@@ -128,7 +124,7 @@ pub fn empty(slug: &str, options: &Options) -> String {
 
 impl Node {
     fn render(&self, options: &Options) -> String {
-        let form_html = if options.allow_relay {
+        let form_html = if options.web.relay_comments {
             comment_form(options.comment_action, &self.message.message_id, "Reply")
         } else {
             String::new()
