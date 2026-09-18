@@ -84,15 +84,16 @@ body {
 .replies > li + li { margin-top: 0.75rem; }
 .replies .comment { margin-top: 0.75rem; }
 .reply-toggle { margin-top: 0.6rem; }
-.reply-toggle summary {
+.reply-toggle .reply-summary {
   cursor: pointer;
   color: var(--tm-accent);
   font-size: 0.85rem;
-  list-style: none;
+  text-decoration: none;
+  display: inline-block;
 }
-.reply-toggle summary::-webkit-details-marker { display: none; }
-.reply-toggle-reply summary::before { content: "\21a9 "; }
-.reply-toggle form { margin-top: 0.6rem; display: grid; gap: 0.5rem; max-width: 480px; }
+.reply-toggle-reply .reply-summary::before { content: "\21a9 "; }
+.reply-toggle form { display: none; margin-top: 0.6rem; gap: 0.5rem; max-width: 480px; }
+.reply-toggle:target form { display: grid; }
 .reply-toggle label { font-size: 0.8rem; color: var(--tm-muted); display: grid; gap: 0.25rem; }
 .reply-toggle input[type="text"], .reply-toggle textarea {
   font: inherit;
@@ -113,6 +114,7 @@ body {
   color: #fff;
   cursor: pointer;
 }
+.reply-cancel { justify-self: start; font-size: 0.8rem; color: var(--tm-muted); }
 .empty-state { color: var(--tm-muted); }
 .stale-notice {
   display: flex;

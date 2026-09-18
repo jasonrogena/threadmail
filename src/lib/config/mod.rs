@@ -77,7 +77,7 @@ pub struct WebConfig {
 }
 
 fn default_refresh_interval_secs() -> u64 {
-    60
+    180
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -124,7 +124,7 @@ pub struct StorageConfig {
 }
 
 fn default_incoming_message_ttl_secs() -> u64 {
-    60
+    30
 }
 
 fn default_outgoing_message_ttl_secs() -> u64 {

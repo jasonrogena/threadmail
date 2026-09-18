@@ -227,8 +227,7 @@ fn empty_offers_a_top_level_form_replying_to_nothing_when_relay_is_enabled() {
 
     assert!(html.contains("No comments yet"));
     assert!(html.contains("name=\"in_reply_to\" value=\"\""));
-    assert!(html.contains("class=\"reply-toggle\">"));
-    assert!(!html.contains("class=\"reply-toggle reply-toggle-reply\""));
+    assert!(html.contains("class=\"reply-toggle\" id=\"comment-top-level\""));
 }
 
 #[test]
@@ -288,7 +287,7 @@ fn shows_a_persistent_latency_notice_only_when_relay_is_enabled() {
 }
 
 #[test]
-fn reply_form_is_collapsed_by_default() {
+fn reply_form_is_hidden_without_a_matching_url_fragment() {
     let thread = Thread {
         slug: "my-post".to_string(),
         top_level_messages: vec![Node {
@@ -301,8 +300,27 @@ fn reply_form_is_collapsed_by_default() {
 
     let html = thread.render(&options(&mailing_list, &web));
 
-    assert!(html.contains("<details class=\"reply-toggle reply-toggle-reply\">"));
-    assert!(!html.contains("<details open"));
+    assert!(html.contains("id=\"comment-reply-root\""));
+    assert!(html.contains(".reply-toggle form { display: none;"));
+    assert!(html.contains(".reply-toggle:target form { display: grid; }"));
+}
+
+#[test]
+fn the_reply_toggle_links_to_its_own_fragment_and_can_be_cancelled() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        top_level_messages: vec![Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        }],
+    };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+
+    let html = thread.render(&options(&mailing_list, &web));
+
+    assert!(html.contains("href=\"#comment-reply-root\">Reply</a>"));
+    assert!(html.contains("href=\"#\">Cancel</a>"));
 }
 
 #[test]
@@ -319,8 +337,8 @@ fn only_the_reply_toggle_gets_the_reply_icon_class() {
 
     let html = thread.render(&options(&mailing_list, &web));
 
-    assert!(html.contains("class=\"reply-toggle reply-toggle-reply\""));
-    assert!(html.contains("class=\"reply-toggle\">"));
+    assert!(html.contains("class=\"reply-toggle reply-toggle-reply\" id=\"comment-reply-root\""));
+    assert!(html.contains("class=\"reply-toggle\" id=\"comment-top-level\""));
 }
 
 #[test]

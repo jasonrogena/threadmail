@@ -65,6 +65,7 @@ struct CommentFormTemplate<'a> {
     action: &'a str,
     in_reply_to: &'a str,
     label: &'a str,
+    toggle_id: String,
 }
 
 fn style(theme: &str) -> String {
@@ -156,10 +157,16 @@ impl Node {
 }
 
 fn comment_form(action: &str, in_reply_to: &str, label: &str) -> String {
+    let toggle_id = if in_reply_to.is_empty() {
+        "comment-top-level".to_string()
+    } else {
+        format!("comment-reply-{in_reply_to}")
+    };
     CommentFormTemplate {
         action,
         in_reply_to,
         label,
+        toggle_id,
     }
     .render()
     .expect("comment form template is valid")

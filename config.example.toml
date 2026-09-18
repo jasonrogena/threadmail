@@ -43,8 +43,8 @@ bind_address = "127.0.0.1:8080"
 # How often (in seconds) the rendered page reloads itself to check for new
 # comments. Independent of storage.incoming_message_ttl_secs below: every
 # page check is a cache hit, only some of which trigger a fresh IMAP
-# search. Optional, defaults to 60.
-# refresh_interval_secs = 60
+# search. Optional, defaults to 180.
+# refresh_interval_secs = 180
 
 # Credentials for the bot account's own mailbox. The bot must be a normal
 # subscribed member of the mailing list, so every list message is delivered
@@ -84,8 +84,8 @@ path = "/var/lib/threadmail/threadmail.db"
 
 # How long a cached incoming search result is served before a fresh IMAP
 # search is triggered in the background. The cache is never authoritative.
-# Optional, defaults to 60.
-# incoming_message_ttl_secs = 60
+# Optional, defaults to 30.
+# incoming_message_ttl_secs = 30
 
 # How long an outgoing (submitted) comment is retried before being dropped
 # undelivered. Optional, defaults to 10800 (3 hours).

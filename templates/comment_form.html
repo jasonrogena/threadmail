@@ -1,9 +1,10 @@
-<details class="reply-toggle{% if !in_reply_to.is_empty() %} reply-toggle-reply{% endif %}">
-<summary>{{ label }}</summary>
+<div class="reply-toggle{% if !in_reply_to.is_empty() %} reply-toggle-reply{% endif %}" id="{{ toggle_id }}">
+<a class="reply-summary" href="#{{ toggle_id }}">{{ label }}</a>
 <form method="post" action="{{ action }}">
 <input type="hidden" name="in_reply_to" value="{{ in_reply_to }}">
 <label>Name <input type="text" name="name" required></label>
 <label>Comment <textarea name="body" required></textarea></label>
 <button type="submit">Post</button>
+<a class="reply-cancel" href="#">Cancel</a>
 </form>
-</details>
+</div>
