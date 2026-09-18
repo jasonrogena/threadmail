@@ -26,46 +26,52 @@ fn subject<'a>(slug: &'a str, prefix: &'a str, suffix: &'a str) -> Subject<'a> {
 
 #[test]
 fn builds_a_nested_tree_from_references() {
-    let root = msg("root", "my-post", None, 1);
-    let reply = msg("reply", "Re: my-post", Some("root"), 2);
+    let top = msg("top", "my-post", None, 1);
+    let reply = msg("reply", "Re: my-post", Some("top"), 2);
     let nested = msg("nested", "Re: my-post", Some("reply"), 3);
 
-    let thread = Thread::resolve(&subject("my-post", "", ""), vec![nested, root, reply]).unwrap();
+    let thread = Thread::resolve(&subject("my-post", "", ""), vec![nested, top, reply]).unwrap();
 
-    assert_eq!(thread.root.message.message_id, "root");
-    assert_eq!(thread.root.replies.len(), 1);
-    assert_eq!(thread.root.replies[0].message.message_id, "reply");
+    assert_eq!(thread.top_level_messages.len(), 1);
+    assert_eq!(thread.top_level_messages[0].message.message_id, "top");
+    assert_eq!(thread.top_level_messages[0].replies.len(), 1);
     assert_eq!(
-        thread.root.replies[0].replies[0].message.message_id,
+        thread.top_level_messages[0].replies[0].message.message_id,
+        "reply"
+    );
+    assert_eq!(
+        thread.top_level_messages[0].replies[0].replies[0]
+            .message
+            .message_id,
         "nested"
     );
 }
 
 #[test]
-fn picks_the_earliest_top_level_message_as_root_on_duplicates() {
-    let early_root = msg("early", "my-post", None, 1);
-    let late_duplicate = msg("late", "my-post", None, 2);
+fn top_level_messages_are_ordered_by_time() {
+    let earlier = msg("earlier", "my-post", None, 1);
+    let later = msg("later", "my-post", None, 2);
 
-    let thread = Thread::resolve(
-        &subject("my-post", "", ""),
-        vec![late_duplicate, early_root],
-    )
-    .unwrap();
+    let thread = Thread::resolve(&subject("my-post", "", ""), vec![later, earlier]).unwrap();
 
-    assert_eq!(thread.root.message.message_id, "early");
+    assert_eq!(thread.top_level_messages.len(), 2);
+    assert_eq!(thread.top_level_messages[0].message.message_id, "earlier");
+    assert_eq!(thread.top_level_messages[1].message.message_id, "later");
 }
 
 #[test]
-fn attaches_stray_messages_missing_threading_headers_under_the_root() {
-    let root = msg("root", "my-post", None, 1);
-    let mut stray = msg("stray", "Re: my-post", None, 2);
-    stray.in_reply_to = None;
-    stray.references = Vec::new();
+fn a_non_reply_message_matching_the_subject_is_also_a_top_level_message() {
+    let first = msg("first", "my-post", None, 1);
+    let mut second = msg("second", "Re: my-post", None, 2);
+    second.in_reply_to = None;
+    second.references = Vec::new();
 
-    let thread = Thread::resolve(&subject("my-post", "", ""), vec![root, stray]).unwrap();
+    let thread = Thread::resolve(&subject("my-post", "", ""), vec![first, second]).unwrap();
 
-    assert_eq!(thread.root.replies.len(), 1);
-    assert_eq!(thread.root.replies[0].message.message_id, "stray");
+    assert_eq!(thread.top_level_messages.len(), 2);
+    assert_eq!(thread.top_level_messages[0].replies.len(), 0);
+    assert_eq!(thread.top_level_messages[1].message.message_id, "second");
+    assert_eq!(thread.top_level_messages[1].replies.len(), 0);
 }
 
 #[test]
@@ -75,50 +81,50 @@ fn errors_when_no_message_matches_the_slug() {
 }
 
 #[test]
-fn a_configured_prefix_is_required_on_the_roots_exact_subject() {
-    let root = msg("root", "Blog Comments: my-post", None, 1);
+fn a_configured_prefix_is_required_on_the_exact_subject() {
+    let top = msg("top", "Blog Comments: my-post", None, 1);
 
-    let thread = Thread::resolve(&subject("my-post", "Blog Comments: ", ""), vec![root]).unwrap();
+    let thread = Thread::resolve(&subject("my-post", "Blog Comments: ", ""), vec![top]).unwrap();
 
-    assert_eq!(thread.root.message.message_id, "root");
+    assert_eq!(thread.top_level_messages[0].message.message_id, "top");
 }
 
 #[test]
-fn a_root_missing_the_configured_prefix_is_not_matched() {
-    let root = msg("root", "my-post", None, 1);
+fn a_message_missing_the_configured_prefix_is_not_matched() {
+    let top = msg("top", "my-post", None, 1);
 
-    assert!(Thread::resolve(&subject("my-post", "Blog Comments: ", ""), vec![root]).is_err());
+    assert!(Thread::resolve(&subject("my-post", "Blog Comments: ", ""), vec![top]).is_err());
 }
 
 #[test]
-fn a_configured_suffix_is_required_on_the_roots_exact_subject() {
-    let root = msg("root", "my-post (blog)", None, 1);
+fn a_configured_suffix_is_required_on_the_exact_subject() {
+    let top = msg("top", "my-post (blog)", None, 1);
 
-    let thread = Thread::resolve(&subject("my-post", "", " (blog)"), vec![root]).unwrap();
+    let thread = Thread::resolve(&subject("my-post", "", " (blog)"), vec![top]).unwrap();
 
-    assert_eq!(thread.root.message.message_id, "root");
+    assert_eq!(thread.top_level_messages[0].message.message_id, "top");
 }
 
 #[test]
-fn a_root_missing_the_configured_suffix_is_not_matched() {
-    let root = msg("root", "my-post", None, 1);
+fn a_message_missing_the_configured_suffix_is_not_matched() {
+    let top = msg("top", "my-post", None, 1);
 
-    assert!(Thread::resolve(&subject("my-post", "", " (blog)"), vec![root]).is_err());
+    assert!(Thread::resolve(&subject("my-post", "", " (blog)"), vec![top]).is_err());
 }
 
 #[test]
-fn stray_messages_still_match_on_the_bare_slug_regardless_of_prefix_and_suffix() {
-    let root = msg("root", "Blog Comments: my-post (blog)", None, 1);
-    let mut stray = msg("stray", "Re: Blog Comments: my-post (blog)", None, 2);
-    stray.in_reply_to = None;
-    stray.references = Vec::new();
+fn a_non_reply_message_still_matches_on_the_bare_slug_regardless_of_prefix_and_suffix() {
+    let top = msg("top", "Blog Comments: my-post (blog)", None, 1);
+    let mut other = msg("other", "Re: Blog Comments: my-post (blog)", None, 2);
+    other.in_reply_to = None;
+    other.references = Vec::new();
 
     let thread = Thread::resolve(
         &subject("my-post", "Blog Comments: ", " (blog)"),
-        vec![root, stray],
+        vec![top, other],
     )
     .unwrap();
 
-    assert_eq!(thread.root.replies.len(), 1);
-    assert_eq!(thread.root.replies[0].message.message_id, "stray");
+    assert_eq!(thread.top_level_messages.len(), 2);
+    assert_eq!(thread.top_level_messages[1].message.message_id, "other");
 }

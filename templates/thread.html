@@ -5,7 +5,8 @@
 <p class="stale-notice">Checking for new comments&hellip;</p>
 {% endif %}
 <div class="thread-box">
-{{ root_html|safe }}
+{{ top_level_html|safe }}
+{{ form_html|safe }}
 {% if show_email_link %}
 <p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ mailto_subject|urlencode }}">Comment by email</a></p>
 {% endif %}

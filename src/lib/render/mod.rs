@@ -25,7 +25,8 @@ struct StyleTemplate<'a> {
 struct ThreadTemplate<'a> {
     slug: &'a str,
     style_html: String,
-    root_html: String,
+    top_level_html: String,
+    form_html: String,
     mailto_address: &'a str,
     mailto_subject: String,
     show_email_link: bool,
@@ -74,11 +75,22 @@ fn style(theme: &str) -> String {
 
 impl Thread {
     pub fn render(&self, options: &Options) -> String {
-        let root_html = self.root.render(options);
+        let top_level_html = self
+            .top_level_messages
+            .iter()
+            .map(|node| node.render(options))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let form_html = if options.web.relay_comments {
+            comment_form(options.comment_action, "", "Leave a comment")
+        } else {
+            String::new()
+        };
         ThreadTemplate {
             slug: &self.slug,
             style_html: style(options.web.theme.as_str()),
-            root_html,
+            top_level_html,
+            form_html,
             mailto_address: &options.mailing_list.posting_address,
             mailto_subject: Subject {
                 slug: &self.slug,

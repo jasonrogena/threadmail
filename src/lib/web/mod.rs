@@ -382,24 +382,19 @@ async fn submit_comment(
         }
     };
 
-    let pending = match state.outgoing_comments.enqueue(
+    if let Err(err) = state.outgoing_comments.enqueue(
         &slug,
         &state.config.mailing_list.bot_address,
         &state.config.mailing_list.posting_address,
         &message.formatted(),
     ) {
-        Ok(pending) => pending,
-        Err(err) => {
-            tracing::error!(%err, %slug, "failed to queue a comment for delivery");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "could not queue that comment",
-            )
-                .into_response();
-        }
-    };
-
-    spawn_send(&state, pending);
+        tracing::error!(%err, %slug, "failed to queue a comment for delivery");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not queue that comment",
+        )
+            .into_response();
+    }
 
     Redirect::to(&format!("/thread/{slug}")).into_response()
 }

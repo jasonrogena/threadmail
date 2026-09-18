@@ -299,12 +299,13 @@ async fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
 #[tokio::test]
 async fn submitting_a_comment_redirects_immediately_and_relays_it_in_the_background() {
     let sink = Arc::new(FixtureSink::default());
-    let app = router(state(
+    let app_state = state(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
         sink.clone(),
-    ));
+    );
+    let app = router(app_state.clone());
 
     let response = app
         .oneshot(
@@ -326,6 +327,7 @@ async fn submitting_a_comment_redirects_immediately_and_relays_it_in_the_backgro
         "/thread/my-post"
     );
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     let sent = sink.sent.lock().unwrap();
@@ -337,7 +339,7 @@ async fn submitting_a_comment_redirects_immediately_and_relays_it_in_the_backgro
 #[tokio::test]
 async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix() {
     let sink = Arc::new(FixtureSink::default());
-    let app = router(state_with_subject(
+    let app_state = state_with_subject(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
@@ -347,7 +349,8 @@ async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix()
         NO_REFRESH_NEEDED,
         "Blog Comments: ",
         " (blog)",
-    ));
+    );
+    let app = router(app_state.clone());
 
     app.oneshot(
         Request::builder()
@@ -360,6 +363,7 @@ async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix()
     .await
     .unwrap();
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     let sent = sink.sent.lock().unwrap();
@@ -369,12 +373,13 @@ async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix()
 #[tokio::test]
 async fn repeated_identical_submissions_only_relay_once() {
     let sink = Arc::new(FixtureSink::default());
-    let app = router(state(
+    let app_state = state(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
         sink.clone(),
-    ));
+    );
+    let app = router(app_state.clone());
 
     for _ in 0..3 {
         let response = app
@@ -394,6 +399,7 @@ async fn repeated_identical_submissions_only_relay_once() {
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
     }
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
@@ -402,12 +408,13 @@ async fn repeated_identical_submissions_only_relay_once() {
 #[tokio::test]
 async fn a_different_comment_after_a_duplicate_still_relays() {
     let sink = Arc::new(FixtureSink::default());
-    let app = router(state(
+    let app_state = state(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
         sink.clone(),
-    ));
+    );
+    let app = router(app_state.clone());
 
     for body in [
         "name=Bob&body=I+agree",
@@ -427,6 +434,7 @@ async fn a_different_comment_after_a_duplicate_still_relays() {
             .unwrap();
     }
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| sink.sent.lock().unwrap().len() >= 2).await;
 
     assert_eq!(sink.sent.lock().unwrap().len(), 2);
@@ -442,7 +450,7 @@ async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
         sink.clone(),
     );
     seed(&app_state, "posts/2026-07-12-example", &[ROOT.to_vec()]);
-    let app = router(app_state);
+    let app = router(app_state.clone());
 
     let (status, html) = get_html(app.clone(), "/thread/posts/2026-07-12-example").await;
     assert_eq!(status, StatusCode::OK);
@@ -466,6 +474,7 @@ async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
         "/thread/posts/2026-07-12-example"
     );
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }
@@ -703,7 +712,7 @@ async fn a_successful_submission_triggers_an_immediate_re_search_so_the_reply_sh
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
     let cache = app_state.cache.clone();
-    let app = router(app_state);
+    let app = router(app_state.clone());
 
     app.oneshot(
         Request::builder()
@@ -716,9 +725,8 @@ async fn a_successful_submission_triggers_an_immediate_re_search_so_the_reply_sh
     .await
     .unwrap();
 
-    // The submission invalidates the cache and, once the queued comment is
-    // actually delivered, re-triggers a background search; wait for that
-    // search to land and mark the slug refreshed again.
+    // Once the worker delivers the queued comment, it re-triggers a search.
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| cache.get("my-post").unwrap().refreshed_at.is_some()).await;
 
     assert!(cache.get("my-post").unwrap().refreshed_at.is_some());
@@ -734,7 +742,7 @@ async fn a_queued_comment_is_removed_from_outgoing_comments_once_delivered() {
         sink,
     );
     let outgoing_comments = app_state.outgoing_comments.clone();
-    let app = router(app_state);
+    let app = router(app_state.clone());
 
     app.oneshot(
         Request::builder()
@@ -747,6 +755,7 @@ async fn a_queued_comment_is_removed_from_outgoing_comments_once_delivered() {
     .await
     .unwrap();
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
 
     assert!(outgoing_comments.pending().unwrap().is_empty());
@@ -761,7 +770,7 @@ async fn a_failed_delivery_stays_queued_for_retry() {
         Arc::new(FailingSink),
     );
     let outgoing_comments = app_state.outgoing_comments.clone();
-    let app = router(app_state);
+    let app = router(app_state.clone());
 
     app.oneshot(
         Request::builder()
@@ -775,6 +784,7 @@ async fn a_failed_delivery_stays_queued_for_retry() {
     .unwrap();
 
     // Give the first (failing) attempt a moment to run and settle.
+    spawn_outgoing_comment_worker(app_state);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(outgoing_comments.pending().unwrap().len(), 1);
@@ -796,7 +806,7 @@ async fn an_expired_pending_comment_is_dropped_without_being_sent() {
         config,
     );
     let outgoing_comments = app_state.outgoing_comments.clone();
-    let app = router(app_state);
+    let app = router(app_state.clone());
 
     app.oneshot(
         Request::builder()
@@ -809,6 +819,7 @@ async fn an_expired_pending_comment_is_dropped_without_being_sent() {
     .await
     .unwrap();
 
+    spawn_outgoing_comment_worker(app_state);
     wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
 
     assert!(outgoing_comments.pending().unwrap().is_empty());

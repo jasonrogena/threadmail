@@ -5,8 +5,8 @@ mod tests;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("no message in the given set is a valid root for this slug")]
-    NoRoot,
+    #[error("no message in the given set is a valid top-level message for this slug")]
+    NoTopLevelMessage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,28 +18,31 @@ pub struct Node {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thread {
     pub slug: String,
-    pub root: Node,
+    pub top_level_messages: Vec<Node>,
 }
 
 impl Thread {
     pub fn resolve(subject: &Subject, mut messages: Vec<Message>) -> Result<Thread, Error> {
         messages.sort_by_key(|m| m.sent_at.unwrap_or(i64::MAX));
 
-        let root_subject = subject.to_string();
-        let root_index = messages
+        // At least one message must carry the exact canonical subject, or this
+        // isn't confidently a thread for this slug at all.
+        let exact_subject = subject.to_string();
+        let has_exact_match = messages
             .iter()
-            .position(|m| m.is_top_level() && m.subject == root_subject)
-            .ok_or(Error::NoRoot)?;
-        let root_message = messages.remove(root_index);
+            .any(|m| m.is_top_level() && m.subject == exact_subject);
+        if !has_exact_match {
+            return Err(Error::NoTopLevelMessage);
+        }
 
-        let mut root_node = attach_replies(root_message, &mut messages);
-
-        // Attach stray messages missing threading headers by subject instead.
+        // Every non-reply message matching the subject is a top-level message
+        // with equal standing, in the order they were sent.
+        let mut top_level_messages = Vec::new();
         let mut i = 0;
         while i < messages.len() {
-            if messages[i].subject.contains(subject.slug) {
-                let stray = messages.remove(i);
-                root_node.replies.push(attach_replies(stray, &mut messages));
+            if messages[i].is_top_level() && messages[i].subject.contains(subject.slug) {
+                let message = messages.remove(i);
+                top_level_messages.push(attach_replies(message, &mut messages));
             } else {
                 i += 1;
             }
@@ -47,7 +50,7 @@ impl Thread {
 
         Ok(Thread {
             slug: subject.slug.to_string(),
-            root: root_node,
+            top_level_messages,
         })
     }
 }

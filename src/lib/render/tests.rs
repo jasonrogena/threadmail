@@ -49,10 +49,10 @@ fn options<'a>(mailing_list: &'a MailingListConfig, web: &'a WebConfig) -> Optio
 fn escapes_attacker_controlled_content() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "<script>alert(1)</script>", "hello \"world\""),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -68,13 +68,13 @@ fn escapes_attacker_controlled_content() {
 fn nests_replies_and_carries_message_id_for_threaded_replies() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: vec![Node {
                 message: msg("reply", "Bob", "second"),
                 replies: Vec::new(),
             }],
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -87,13 +87,56 @@ fn nests_replies_and_carries_message_id_for_threaded_replies() {
 }
 
 #[test]
+fn a_second_top_level_comment_is_not_nested_as_a_reply_to_the_first() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        top_level_messages: vec![
+            Node {
+                message: msg("root", "Alice", "first"),
+                replies: Vec::new(),
+            },
+            Node {
+                message: msg("other-root", "Bob", "unrelated"),
+                replies: Vec::new(),
+            },
+        ],
+    };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+
+    let html = thread.render(&options(&mailing_list, &web));
+
+    assert!(html.contains("id=\"c-root\""));
+    assert!(html.contains("id=\"c-other-root\""));
+    assert!(!html.contains("<ol class=\"replies\">"));
+}
+
+#[test]
+fn offers_a_top_level_comment_form_alongside_existing_comments() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        top_level_messages: vec![Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        }],
+    };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+
+    let html = thread.render(&options(&mailing_list, &web));
+
+    assert!(html.contains("Leave a comment"));
+    assert!(html.contains("name=\"in_reply_to\" value=\"\""));
+}
+
+#[test]
 fn includes_a_mailto_hint_with_the_slug_as_subject() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -107,10 +150,10 @@ fn includes_a_mailto_hint_with_the_slug_as_subject() {
 fn the_mailto_subject_carries_the_configured_prefix_and_suffix() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mut mailing_list = mailing_list_config();
     mailing_list.subject_prefix = "Blog Comments: ".to_string();
@@ -126,10 +169,10 @@ fn the_mailto_subject_carries_the_configured_prefix_and_suffix() {
 fn never_renders_a_real_email_address_for_a_commenter() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "reach me at alice@example.com"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -143,10 +186,10 @@ fn never_renders_a_real_email_address_for_a_commenter() {
 fn omits_comment_forms_when_relay_is_disabled() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(false, true);
@@ -161,10 +204,10 @@ fn omits_comment_forms_when_relay_is_disabled() {
 fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, false);
@@ -215,10 +258,10 @@ fn empty_does_not_claim_no_comments_while_stale() {
 fn shows_a_persistent_latency_notice_only_when_relay_is_enabled() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let relay_on = web_config(true, true);
@@ -246,10 +289,10 @@ fn shows_a_persistent_latency_notice_only_when_relay_is_enabled() {
 fn reply_form_is_collapsed_by_default() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -265,10 +308,10 @@ fn reply_form_is_collapsed_by_default() {
 fn auto_theme_defers_to_the_device_via_media_query() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let mut web = web_config(true, true);
@@ -284,10 +327,10 @@ fn auto_theme_defers_to_the_device_via_media_query() {
 fn light_theme_is_forced_regardless_of_device() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let mut web = web_config(true, true);
@@ -303,10 +346,10 @@ fn light_theme_is_forced_regardless_of_device() {
 fn dark_theme_is_forced_regardless_of_device() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let mut web = web_config(true, true);
@@ -323,10 +366,10 @@ fn dark_theme_is_forced_regardless_of_device() {
 fn each_comment_gets_an_initial_avatar_and_an_anchor() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -341,10 +384,10 @@ fn each_comment_gets_an_initial_avatar_and_an_anchor() {
 fn always_includes_a_periodic_refresh_tag() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -361,10 +404,10 @@ fn always_includes_a_periodic_refresh_tag() {
 fn the_refresh_tag_uses_the_configured_interval() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let mut web = web_config(true, true);
@@ -382,10 +425,10 @@ fn the_refresh_tag_uses_the_configured_interval() {
 fn shows_a_stale_notice_only_when_the_content_is_past_its_ttl() {
     let thread = Thread {
         slug: "my-post".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
@@ -406,10 +449,10 @@ fn shows_a_stale_notice_only_when_the_content_is_past_its_ttl() {
 fn escapes_the_slug_in_both_render_and_empty() {
     let thread = Thread {
         slug: "<script>".to_string(),
-        root: Node {
+        top_level_messages: vec![Node {
             message: msg("root", "Alice", "first"),
             replies: Vec::new(),
-        },
+        }],
     };
     let mailing_list = mailing_list_config();
     let web = web_config(true, true);
