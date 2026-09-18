@@ -22,6 +22,8 @@ impl NewComment<'_> {
     pub fn compose(
         &self,
         slug: &str,
+        subject_prefix: &str,
+        subject_suffix: &str,
         bot_address: &str,
         list_address: &str,
     ) -> Result<Message, Error> {
@@ -32,8 +34,8 @@ impl NewComment<'_> {
         let to: Mailbox = list_address.parse::<lettre::Address>()?.into();
 
         let subject = match self.in_reply_to {
-            Some(_) => format!("Re: {slug}"),
-            None => slug.to_string(),
+            Some(_) => format!("Re: {subject_prefix}{slug}{subject_suffix}"),
+            None => format!("{subject_prefix}{slug}{subject_suffix}"),
         };
 
         let mut builder = Message::builder()

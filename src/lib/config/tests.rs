@@ -15,6 +15,8 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert!(config.list.relay_comments);
     assert!(config.list.show_email_link);
     assert_eq!(config.list.theme, "auto");
+    assert_eq!(config.list.subject_prefix, "");
+    assert_eq!(config.list.subject_suffix, "");
     assert_eq!(config.limits.max_concurrent_searches, 8);
     assert_eq!(config.limits.max_concurrent_submits, 4);
     assert_eq!(config.limits.cache_ttl_secs, 300);
@@ -62,6 +64,28 @@ fn username_and_password_default_to_empty_string_when_omitted() {
     assert_eq!(config.imap.password, "");
     assert_eq!(config.smtp.username, "");
     assert_eq!(config.smtp.password, "");
+}
+
+#[test]
+fn honors_an_explicit_subject_prefix_and_suffix() {
+    let toml_str = r#"
+        [server]
+        bind_address = "127.0.0.1:8080"
+        [list]
+        bot_address = "bot@example.com"
+        posting_address = "group@example.com"
+        subject_prefix = "Blog Comments: "
+        subject_suffix = " (blog)"
+        [imap]
+        host = "imap.example.com"
+        port = 993
+        [smtp]
+        host = "smtp.example.com"
+        port = 587
+    "#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.list.subject_prefix, "Blog Comments: ");
+    assert_eq!(config.list.subject_suffix, " (blog)");
 }
 
 #[test]

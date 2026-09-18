@@ -32,6 +32,13 @@ posting_address = "our-comments@googlegroups.com"
 # defaults to "auto".
 # theme = "auto"
 
+# Wrapped around the slug to form the actual email Subject used when
+# composing a web-relayed comment and searching IMAP for a thread; the slug
+# itself (routes, forms, the iframe src) never carries them. Optional,
+# empty (disabled) by default.
+# subject_prefix = "Blog Comments: "
+# subject_suffix = ""
+
 # Credentials for the bot account's own mailbox. The bot must be a normal
 # subscribed member of the mailing list, so every list message is delivered
 # here as a copy — no Google Groups API, no catch-all routing. A thread is

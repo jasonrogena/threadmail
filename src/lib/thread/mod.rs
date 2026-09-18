@@ -22,12 +22,18 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn resolve(slug: &str, mut messages: Vec<Message>) -> Result<Thread, Error> {
+    pub fn resolve(
+        slug: &str,
+        subject_prefix: &str,
+        subject_suffix: &str,
+        mut messages: Vec<Message>,
+    ) -> Result<Thread, Error> {
         messages.sort_by_key(|m| m.sent_at.unwrap_or(i64::MAX));
 
+        let root_subject = format!("{subject_prefix}{slug}{subject_suffix}");
         let root_index = messages
             .iter()
-            .position(|m| m.is_top_level() && m.subject == slug)
+            .position(|m| m.is_top_level() && m.subject == root_subject)
             .ok_or(Error::NoRoot)?;
         let root_message = messages.remove(root_index);
 

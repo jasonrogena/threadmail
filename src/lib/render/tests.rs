@@ -23,6 +23,8 @@ fn options(allow_relay: bool, show_email_link: bool) -> Options<'static> {
         just_posted: false,
         refresh_interval_secs: 60,
         stale: false,
+        subject_prefix: "",
+        subject_suffix: "",
     }
 }
 
@@ -76,6 +78,24 @@ fn includes_a_mailto_hint_with_the_slug_as_subject() {
     let html = thread.render(&options(true, true));
 
     assert!(html.contains("mailto:group@example.com?subject=my-post"));
+}
+
+#[test]
+fn the_mailto_subject_carries_the_configured_prefix_and_suffix() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        root: Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        },
+    };
+    let mut opts = options(true, true);
+    opts.subject_prefix = "Blog Comments: ";
+    opts.subject_suffix = " (blog)";
+
+    let html = thread.render(&opts);
+
+    assert!(html.contains("subject=Blog%20Comments%3A%20my-post%20%28blog%29"));
 }
 
 #[test]

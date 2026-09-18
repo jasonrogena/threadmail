@@ -35,6 +35,8 @@ pub struct AppState {
     show_email_link: bool,
     theme: String,
     body_footer_regex: Option<Regex>,
+    subject_prefix: String,
+    subject_suffix: String,
     search_limit: Arc<Semaphore>,
     submit_limit: Arc<Semaphore>,
     recent_submissions: Arc<Mutex<HashMap<u64, Instant>>>,
@@ -55,6 +57,8 @@ impl AppState {
         show_email_link: bool,
         theme: String,
         body_footer_regex: Option<Regex>,
+        subject_prefix: String,
+        subject_suffix: String,
         max_concurrent_searches: usize,
         max_concurrent_submits: usize,
     ) -> Self {
@@ -70,6 +74,8 @@ impl AppState {
             show_email_link,
             theme,
             body_footer_regex,
+            subject_prefix,
+            subject_suffix,
             search_limit: Arc::new(Semaphore::new(max_concurrent_searches)),
             submit_limit: Arc::new(Semaphore::new(max_concurrent_submits)),
             recent_submissions: Arc::new(Mutex::new(HashMap::new())),
@@ -92,6 +98,8 @@ impl AppState {
             just_posted,
             refresh_interval_secs: self.refresh_interval_secs,
             stale,
+            subject_prefix: &self.subject_prefix,
+            subject_suffix: &self.subject_suffix,
         }
     }
 }
@@ -148,8 +156,8 @@ async fn run_refresh(state: AppState, slug: String) {
         }
     };
     let source = state.source.clone();
-    let search_slug = slug.clone();
-    let result = tokio::task::spawn_blocking(move || source.search_subject(&search_slug)).await;
+    let search_subject = format!("{}{}{}", state.subject_prefix, slug, state.subject_suffix);
+    let result = tokio::task::spawn_blocking(move || source.search_subject(&search_subject)).await;
     drop(permit);
 
     match result {
@@ -198,7 +206,12 @@ async fn show_thread(
         })
         .collect();
 
-    match thread::Thread::resolve(&slug, messages) {
+    match thread::Thread::resolve(
+        &slug,
+        &state.subject_prefix,
+        &state.subject_suffix,
+        messages,
+    ) {
         Ok(resolved) => Html(resolved.render(&options)).into_response(),
         Err(_) => Html(render::empty(&slug, &options)).into_response(),
     }
@@ -240,7 +253,13 @@ async fn submit_comment(
         in_reply_to,
     };
 
-    let message = match comment.compose(&slug, &state.bot_address, &state.list_posting_address) {
+    let message = match comment.compose(
+        &slug,
+        &state.subject_prefix,
+        &state.subject_suffix,
+        &state.bot_address,
+        &state.list_posting_address,
+    ) {
         Ok(message) => message,
         Err(err) => {
             tracing::warn!(%err, %slug, "rejected a malformed comment submission");

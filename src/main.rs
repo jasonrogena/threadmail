@@ -151,6 +151,8 @@ async fn serve(config_path: &str) {
         config.list.show_email_link,
         config.list.theme,
         body_footer_regex,
+        config.list.subject_prefix,
+        config.list.subject_suffix,
         config.limits.max_concurrent_searches,
         config.limits.max_concurrent_submits,
     );

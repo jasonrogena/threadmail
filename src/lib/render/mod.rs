@@ -14,6 +14,8 @@ pub struct Options<'a> {
     pub just_posted: bool,
     pub refresh_interval_secs: u64,
     pub stale: bool,
+    pub subject_prefix: &'a str,
+    pub subject_suffix: &'a str,
 }
 
 #[derive(Template)]
@@ -29,6 +31,7 @@ struct ThreadTemplate<'a> {
     style_html: String,
     root_html: String,
     mailto_address: &'a str,
+    mailto_subject: String,
     show_email_link: bool,
     just_posted: bool,
     refresh_interval_secs: u64,
@@ -43,6 +46,7 @@ struct EmptyTemplate<'a> {
     style_html: String,
     form_html: String,
     mailto_address: &'a str,
+    mailto_subject: String,
     show_email_link: bool,
     just_posted: bool,
     refresh_interval_secs: u64,
@@ -83,6 +87,11 @@ impl Thread {
             style_html: style(options.theme),
             root_html,
             mailto_address: options.mailto_address,
+            mailto_subject: mailto_subject(
+                &self.slug,
+                options.subject_prefix,
+                options.subject_suffix,
+            ),
             show_email_link: options.show_email_link,
             just_posted: options.just_posted,
             refresh_interval_secs: options.refresh_interval_secs,
@@ -105,6 +114,7 @@ pub fn empty(slug: &str, options: &Options) -> String {
         style_html: style(options.theme),
         form_html,
         mailto_address: options.mailto_address,
+        mailto_subject: mailto_subject(slug, options.subject_prefix, options.subject_suffix),
         show_email_link: options.show_email_link,
         just_posted: options.just_posted,
         refresh_interval_secs: options.refresh_interval_secs,
@@ -113,6 +123,10 @@ pub fn empty(slug: &str, options: &Options) -> String {
     }
     .render()
     .expect("empty template is valid")
+}
+
+fn mailto_subject(slug: &str, subject_prefix: &str, subject_suffix: &str) -> String {
+    format!("{subject_prefix}{slug}{subject_suffix}")
 }
 
 impl Node {

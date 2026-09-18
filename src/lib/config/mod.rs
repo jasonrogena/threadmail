@@ -44,6 +44,11 @@ pub struct ListConfig {
     // Everything from the first match onward is stripped from bodies; empty disables it.
     #[serde(default)]
     pub body_footer_regex: String,
+    // Prepended/appended to the slug when building a Subject; empty disables.
+    #[serde(default)]
+    pub subject_prefix: String,
+    #[serde(default)]
+    pub subject_suffix: String,
     // "auto" (follow the visitor's device), "light", or "dark".
     #[serde(default = "auto_theme")]
     pub theme: String,

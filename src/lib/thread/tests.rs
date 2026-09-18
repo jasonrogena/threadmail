@@ -18,7 +18,7 @@ fn builds_a_nested_tree_from_references() {
     let reply = msg("reply", "Re: my-post", Some("root"), 2);
     let nested = msg("nested", "Re: my-post", Some("reply"), 3);
 
-    let thread = Thread::resolve("my-post", vec![nested, root, reply]).unwrap();
+    let thread = Thread::resolve("my-post", "", "", vec![nested, root, reply]).unwrap();
 
     assert_eq!(thread.root.message.message_id, "root");
     assert_eq!(thread.root.replies.len(), 1);
@@ -34,7 +34,7 @@ fn picks_the_earliest_top_level_message_as_root_on_duplicates() {
     let early_root = msg("early", "my-post", None, 1);
     let late_duplicate = msg("late", "my-post", None, 2);
 
-    let thread = Thread::resolve("my-post", vec![late_duplicate, early_root]).unwrap();
+    let thread = Thread::resolve("my-post", "", "", vec![late_duplicate, early_root]).unwrap();
 
     assert_eq!(thread.root.message.message_id, "early");
 }
@@ -46,7 +46,7 @@ fn attaches_stray_messages_missing_threading_headers_under_the_root() {
     stray.in_reply_to = None;
     stray.references = Vec::new();
 
-    let thread = Thread::resolve("my-post", vec![root, stray]).unwrap();
+    let thread = Thread::resolve("my-post", "", "", vec![root, stray]).unwrap();
 
     assert_eq!(thread.root.replies.len(), 1);
     assert_eq!(thread.root.replies[0].message.message_id, "stray");
@@ -55,5 +55,51 @@ fn attaches_stray_messages_missing_threading_headers_under_the_root() {
 #[test]
 fn errors_when_no_message_matches_the_slug() {
     let unrelated = msg("x", "some-other-post", None, 1);
-    assert!(Thread::resolve("my-post", vec![unrelated]).is_err());
+    assert!(Thread::resolve("my-post", "", "", vec![unrelated]).is_err());
+}
+
+#[test]
+fn a_configured_prefix_is_required_on_the_roots_exact_subject() {
+    let root = msg("root", "Blog Comments: my-post", None, 1);
+
+    let thread = Thread::resolve("my-post", "Blog Comments: ", "", vec![root]).unwrap();
+
+    assert_eq!(thread.root.message.message_id, "root");
+}
+
+#[test]
+fn a_root_missing_the_configured_prefix_is_not_matched() {
+    let root = msg("root", "my-post", None, 1);
+
+    assert!(Thread::resolve("my-post", "Blog Comments: ", "", vec![root]).is_err());
+}
+
+#[test]
+fn a_configured_suffix_is_required_on_the_roots_exact_subject() {
+    let root = msg("root", "my-post (blog)", None, 1);
+
+    let thread = Thread::resolve("my-post", "", " (blog)", vec![root]).unwrap();
+
+    assert_eq!(thread.root.message.message_id, "root");
+}
+
+#[test]
+fn a_root_missing_the_configured_suffix_is_not_matched() {
+    let root = msg("root", "my-post", None, 1);
+
+    assert!(Thread::resolve("my-post", "", " (blog)", vec![root]).is_err());
+}
+
+#[test]
+fn stray_messages_still_match_on_the_bare_slug_regardless_of_prefix_and_suffix() {
+    let root = msg("root", "Blog Comments: my-post (blog)", None, 1);
+    let mut stray = msg("stray", "Re: Blog Comments: my-post (blog)", None, 2);
+    stray.in_reply_to = None;
+    stray.references = Vec::new();
+
+    let thread =
+        Thread::resolve("my-post", "Blog Comments: ", " (blog)", vec![root, stray]).unwrap();
+
+    assert_eq!(thread.root.replies.len(), 1);
+    assert_eq!(thread.root.replies[0].message.message_id, "stray");
 }

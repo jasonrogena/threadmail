@@ -74,6 +74,27 @@ fn state_with_ttl(
     show_email_link: bool,
     cache_ttl_secs: u64,
 ) -> AppState {
+    state_with_subject(
+        source,
+        sink,
+        relay_comments,
+        show_email_link,
+        cache_ttl_secs,
+        "",
+        "",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn state_with_subject(
+    source: FixtureSource,
+    sink: Arc<FixtureSink>,
+    relay_comments: bool,
+    show_email_link: bool,
+    cache_ttl_secs: u64,
+    subject_prefix: &str,
+    subject_suffix: &str,
+) -> AppState {
     AppState::new(
         Arc::new(source),
         sink,
@@ -86,6 +107,8 @@ fn state_with_ttl(
         show_email_link,
         "auto".to_string(),
         None,
+        subject_prefix.to_string(),
+        subject_suffix.to_string(),
         8,
         4,
     )
@@ -229,6 +252,36 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].display_name, "Bob (via web)");
     assert_eq!(sent[0].in_reply_to.as_deref(), Some("root@example.com"));
+}
+
+#[tokio::test]
+async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix() {
+    let sink = Arc::new(FixtureSink::default());
+    let app = router(state_with_subject(
+        FixtureSource {
+            raw_messages: vec![ROOT.to_vec()],
+        },
+        sink.clone(),
+        true,
+        true,
+        NO_REFRESH_NEEDED,
+        "Blog Comments: ",
+        " (blog)",
+    ));
+
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/thread/my-post")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let sent = sink.sent.lock().unwrap();
+    assert_eq!(sent[0].subject, "Blog Comments: my-post (blog)");
 }
 
 #[tokio::test]
@@ -484,6 +537,8 @@ async fn the_refresh_tag_reflects_the_configured_interval() {
         true,
         "auto".to_string(),
         None,
+        "".to_string(),
+        "".to_string(),
         8,
         4,
     );
@@ -525,6 +580,57 @@ async fn a_background_refresh_populates_the_cache_for_a_later_request() {
 
     let (_, second) = get_html(app, "/thread/my-post").await;
     assert!(second.contains("Great post!"));
+}
+
+struct RecordingSource {
+    searched: Arc<Mutex<Vec<String>>>,
+}
+
+impl MailSource for RecordingSource {
+    fn search_subject(&self, subject: &str) -> Result<Vec<Vec<u8>>, crate::source::BoxError> {
+        self.searched.lock().unwrap().push(subject.to_string());
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn the_imap_search_uses_the_slug_wrapped_in_the_configured_prefix_and_suffix() {
+    let searched = Arc::new(Mutex::new(Vec::new()));
+    let source = RecordingSource {
+        searched: searched.clone(),
+    };
+    let app_state = AppState::new(
+        Arc::new(source),
+        Arc::new(FixtureSink::default()),
+        Arc::new(SqliteCache::open_in_memory().unwrap()),
+        NO_REFRESH_NEEDED,
+        60,
+        "bot@ourdomain.example".to_string(),
+        "group@googlegroups.com".to_string(),
+        true,
+        true,
+        "auto".to_string(),
+        None,
+        "Blog Comments: ".to_string(),
+        " (blog)".to_string(),
+        8,
+        4,
+    );
+    let app = router(app_state);
+
+    get_html(app, "/thread/my-post").await;
+
+    for _ in 0..50 {
+        if !searched.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    assert_eq!(
+        searched.lock().unwrap().as_slice(),
+        ["Blog Comments: my-post (blog)"]
+    );
 }
 
 #[tokio::test]

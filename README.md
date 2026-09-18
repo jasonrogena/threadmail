@@ -20,21 +20,11 @@ Comments arrive two ways, each independently toggleable in config: a no-JS `<for
 
 ## Embedding on a static page
 
-A bare `<iframe>` is enough. The CSS below is optional: it shows a loading placeholder until the iframe's document starts painting, with no JS involved (an iframe has no background of its own until then, so it just shows through).
+A bare `<iframe>` is enough.
 
 ```html
-<style>
-  .comments-frame { display: grid; min-height: 600px;
-    background: linear-gradient(90deg, #eee 25%, #ddd 37%, #eee 63%);
-    background-size: 400% 100%; animation: comments-pulse 1.4s ease infinite; }
-  .comments-frame > * { grid-area: 1 / 1; }
-  @keyframes comments-pulse { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
-</style>
-<div class="comments-frame">
-  <span aria-hidden="true">Loading comments&hellip;</span>
-  <iframe src="https://comments.example.com/thread/my-post-slug" title="Comments"
-    height="600" loading="lazy" style="width: 100%; border: none;"></iframe>
-</div>
+<iframe src="https://comments.example.com/thread/my-post-slug" title="Comments"
+  height="600" loading="lazy" style="width: 100%; border: none;"></iframe>
 ```
 
 ## Configuration

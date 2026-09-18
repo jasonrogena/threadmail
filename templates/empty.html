@@ -14,6 +14,6 @@
 {{ form_html|safe }}
 {% endif %}
 {% if show_email_link %}
-<p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ slug|urlencode }}">Comment by email</a></p>
+<p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ mailto_subject|urlencode }}">Comment by email</a></p>
 {% endif %}
 </section>
