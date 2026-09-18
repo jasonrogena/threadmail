@@ -245,7 +245,7 @@ async fn submitting_a_comment_relays_it_and_redirects_back_to_the_thread() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         response.headers().get("location").unwrap(),
-        "/thread/my-post?posted=1"
+        "/thread/my-post"
     );
 
     let sent = sink.sent.lock().unwrap();
@@ -377,13 +377,13 @@ async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         response.headers().get("location").unwrap(),
-        "/thread/posts/2026-07-12-example?posted=1"
+        "/thread/posts/2026-07-12-example"
     );
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn shows_a_posted_notice_only_when_the_query_param_is_present() {
+async fn shows_a_persistent_latency_notice_whenever_relay_is_enabled() {
     let app_state = state(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
@@ -393,29 +393,27 @@ async fn shows_a_posted_notice_only_when_the_query_param_is_present() {
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
     let app = router(app_state);
 
-    let (_, plain) = get_html(app.clone(), "/thread/my-post").await;
-    let (_, posted) = get_html(app, "/thread/my-post?posted=1").await;
+    let (_, html) = get_html(app, "/thread/my-post").await;
 
-    assert!(!plain.contains("class=\"posted-notice\""));
-    assert!(posted.contains("class=\"posted-notice\""));
+    assert!(html.contains("class=\"latency-notice\""));
 }
 
 #[tokio::test]
-async fn the_posted_page_reloads_itself_to_the_clean_url_so_the_notice_clears() {
-    let app_state = state(
+async fn omits_the_latency_notice_when_relay_comments_is_disabled() {
+    let app_state = state_with(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
         Arc::new(FixtureSink::default()),
+        false,
+        true,
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
     let app = router(app_state);
 
-    let (_, plain) = get_html(app.clone(), "/thread/my-post").await;
-    let (_, posted) = get_html(app, "/thread/my-post?posted=1").await;
+    let (_, html) = get_html(app, "/thread/my-post").await;
 
-    assert!(!plain.contains(";url="));
-    assert!(posted.contains(";url=/thread/my-post\""));
+    assert!(!html.contains("class=\"latency-notice\""));
 }
 
 #[tokio::test]

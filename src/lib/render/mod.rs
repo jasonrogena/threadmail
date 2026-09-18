@@ -12,7 +12,6 @@ pub struct Options<'a> {
     pub allow_relay: bool,
     pub show_email_link: bool,
     pub theme: &'a str,
-    pub just_posted: bool,
     pub refresh_interval_secs: u64,
     pub stale: bool,
     pub subject_prefix: &'a str,
@@ -34,10 +33,9 @@ struct ThreadTemplate<'a> {
     mailto_address: &'a str,
     mailto_subject: String,
     show_email_link: bool,
-    just_posted: bool,
+    allow_relay: bool,
     refresh_interval_secs: u64,
     stale: bool,
-    page_url: &'a str,
 }
 
 #[derive(Template)]
@@ -49,10 +47,9 @@ struct EmptyTemplate<'a> {
     mailto_address: &'a str,
     mailto_subject: String,
     show_email_link: bool,
-    just_posted: bool,
+    allow_relay: bool,
     refresh_interval_secs: u64,
     stale: bool,
-    page_url: &'a str,
 }
 
 #[derive(Template)]
@@ -94,10 +91,9 @@ impl Thread {
             }
             .to_string(),
             show_email_link: options.show_email_link,
-            just_posted: options.just_posted,
+            allow_relay: options.allow_relay,
             refresh_interval_secs: options.refresh_interval_secs,
             stale: options.stale,
-            page_url: options.comment_action,
         }
         .render()
         .expect("thread template is valid")
@@ -122,10 +118,9 @@ pub fn empty(slug: &str, options: &Options) -> String {
         }
         .to_string(),
         show_email_link: options.show_email_link,
-        just_posted: options.just_posted,
+        allow_relay: options.allow_relay,
         refresh_interval_secs: options.refresh_interval_secs,
         stale: options.stale,
-        page_url: options.comment_action,
     }
     .render()
     .expect("empty template is valid")

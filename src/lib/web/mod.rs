@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::get;
@@ -84,19 +84,13 @@ impl AppState {
         }
     }
 
-    fn render_options<'a>(
-        &'a self,
-        comment_action: &'a str,
-        just_posted: bool,
-        stale: bool,
-    ) -> render::Options<'a> {
+    fn render_options<'a>(&'a self, comment_action: &'a str, stale: bool) -> render::Options<'a> {
         render::Options {
             comment_action,
             mailto_address: &self.list_posting_address,
             allow_relay: self.relay_comments,
             show_email_link: self.show_email_link,
             theme: &self.theme,
-            just_posted,
             refresh_interval_secs: self.refresh_interval_secs,
             stale,
             subject_prefix: &self.subject_prefix,
@@ -132,11 +126,6 @@ async fn acquire(semaphore: &Semaphore) -> Result<SemaphorePermit<'_>, StatusCod
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
         .map(|permit| permit.expect("semaphore is never closed"))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ShowThreadQuery {
-    posted: Option<String>,
 }
 
 // Kicks off a background IMAP search for `slug` if one isn't already
@@ -185,11 +174,7 @@ async fn run_refresh(state: AppState, slug: String) {
     state.refreshing.lock().unwrap().remove(&slug);
 }
 
-async fn show_thread(
-    State(state): State<AppState>,
-    Path(slug): Path<String>,
-    Query(query): Query<ShowThreadQuery>,
-) -> impl IntoResponse {
+async fn show_thread(State(state): State<AppState>, Path(slug): Path<String>) -> impl IntoResponse {
     let action = format!("/thread/{slug}");
     let subject = Subject {
         slug: &slug,
@@ -207,7 +192,7 @@ async fn show_thread(
         refresh_in_background(&state, &slug);
     }
 
-    let options = state.render_options(&action, query.posted.is_some(), stale);
+    let options = state.render_options(&action, stale);
 
     let messages: Vec<_> = cached
         .raw_messages
@@ -244,7 +229,7 @@ async fn submit_comment(
     let in_reply_to = form.in_reply_to.as_deref().filter(|s| !s.is_empty());
     let key = submission_key(&slug, in_reply_to, &form.name, &form.body);
     if is_duplicate_submission(&state.recent_submissions, key) {
-        return Redirect::to(&format!("/thread/{slug}?posted=1")).into_response();
+        return Redirect::to(&format!("/thread/{slug}")).into_response();
     }
 
     // Invalidated as soon as the write is accepted, not after it's relayed:
@@ -285,7 +270,7 @@ async fn submit_comment(
     match result {
         Ok(Ok(())) => {
             refresh_in_background(&state, &slug);
-            Redirect::to(&format!("/thread/{slug}?posted=1")).into_response()
+            Redirect::to(&format!("/thread/{slug}")).into_response()
         }
         Ok(Err(err)) => {
             tracing::error!(%err, %slug, "failed to submit a comment to the mailing list");

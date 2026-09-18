@@ -22,7 +22,6 @@ fn options(allow_relay: bool, show_email_link: bool) -> Options<'static> {
         allow_relay,
         show_email_link,
         theme: "auto",
-        just_posted: false,
         refresh_interval_secs: 60,
         stale: false,
         subject_prefix: "",
@@ -176,7 +175,7 @@ fn empty_does_not_claim_no_comments_while_stale() {
 }
 
 #[test]
-fn shows_a_posted_notice_only_when_requested() {
+fn shows_a_persistent_latency_notice_only_when_relay_is_enabled() {
     let thread = Thread {
         slug: "my-post".to_string(),
         root: Node {
@@ -184,39 +183,19 @@ fn shows_a_posted_notice_only_when_requested() {
             replies: Vec::new(),
         },
     };
-    let mut posted = options(true, true);
-    posted.just_posted = true;
-
-    assert!(thread.render(&posted).contains("class=\"posted-notice\""));
-    assert!(
-        !thread
-            .render(&options(true, true))
-            .contains("class=\"posted-notice\"")
-    );
-    assert!(empty("my-post", &posted).contains("class=\"posted-notice\""));
-    assert!(!empty("my-post", &options(true, true)).contains("class=\"posted-notice\""));
-}
-
-#[test]
-fn a_just_posted_reload_targets_the_clean_url_so_the_notice_clears_itself() {
-    let thread = Thread {
-        slug: "my-post".to_string(),
-        root: Node {
-            message: msg("root", "Alice", "first"),
-            replies: Vec::new(),
-        },
-    };
-    let mut posted = options(true, true);
-    posted.just_posted = true;
 
     assert!(
         thread
-            .render(&posted)
-            .contains(";url=/thread/my-post/comment")
+            .render(&options(true, true))
+            .contains("class=\"latency-notice\"")
     );
-    assert!(!thread.render(&options(true, true)).contains(";url="));
-    assert!(empty("my-post", &posted).contains(";url=/thread/my-post/comment"));
-    assert!(!empty("my-post", &options(true, true)).contains(";url="));
+    assert!(
+        !thread
+            .render(&options(false, true))
+            .contains("class=\"latency-notice\"")
+    );
+    assert!(empty("my-post", &options(true, true)).contains("class=\"latency-notice\""));
+    assert!(!empty("my-post", &options(false, true)).contains("class=\"latency-notice\""));
 }
 
 #[test]

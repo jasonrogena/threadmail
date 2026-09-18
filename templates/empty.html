@@ -1,11 +1,8 @@
-<meta http-equiv="refresh" content="{{ refresh_interval_secs }}{% if just_posted %};url={{ page_url }}{% endif %}">
+<meta http-equiv="refresh" content="{{ refresh_interval_secs }}">
 {{ style_html|safe }}
 <section class="thread" data-slug="{{ slug }}">
 {% if stale %}
 <p class="stale-notice">Checking for new comments&hellip;</p>
-{% endif %}
-{% if just_posted %}
-<p class="posted-notice">Thanks! Your comment was submitted and may take a few moments to appear here.</p>
 {% endif %}
 {% if !stale %}
 <p class="empty-state">No comments yet. Be the first.</p>
@@ -15,5 +12,8 @@
 {% endif %}
 {% if show_email_link %}
 <p class="email-hint"><a href="mailto:{{ mailto_address }}?subject={{ mailto_subject|urlencode }}">Comment by email</a></p>
+{% endif %}
+{% if allow_relay %}
+<p class="latency-notice">Submitted comments can take a few minutes to appear here.</p>
 {% endif %}
 </section>
