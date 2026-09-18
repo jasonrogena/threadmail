@@ -8,11 +8,11 @@ Every comment is a real RFC 5322 email, threaded via `In-Reply-To`/`References` 
 
 A thread rendered by threadmail:
 
-![A rendered comment thread](img/threadmail-screenshot.png)
+<img src="img/threadmail-screenshot.png" alt="A rendered comment thread" width="500">
 
 The same thread as an actual mailing list conversation in Google Groups:
 
-![The same thread in Google Groups](img/google-groups-screenshot.png)
+<img src="img/google-groups-screenshot.png" alt="The same thread in Google Groups" width="500">
 
 ## Tenets
 
