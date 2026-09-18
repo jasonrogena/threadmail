@@ -28,6 +28,7 @@ fn mailing_list_config() -> MailingListConfig {
 
 fn web_config(relay_comments: bool, show_email_link: bool) -> WebConfig {
     WebConfig {
+        bind_address: "127.0.0.1:0".to_string(),
         relay_comments,
         show_email_link,
         theme: Theme::Auto,

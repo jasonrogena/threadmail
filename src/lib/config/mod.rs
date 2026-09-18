@@ -22,9 +22,7 @@ pub enum Error {
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub server: ServerConfig,
     pub mailing_list: MailingListConfig,
-    #[serde(default)]
     pub web: WebConfig,
     pub imap: ImapConfig,
     pub smtp: SmtpConfig,
@@ -33,11 +31,6 @@ pub struct Config {
 
 fn enabled() -> bool {
     true
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ServerConfig {
-    pub bind_address: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +63,8 @@ where
 
 #[derive(Debug, Deserialize)]
 pub struct WebConfig {
+    // The address (host:port) the HTTP server listens on.
+    pub bind_address: String,
     #[serde(default = "enabled")]
     pub relay_comments: bool,
     #[serde(default = "enabled")]
@@ -83,17 +78,6 @@ pub struct WebConfig {
 
 fn default_refresh_interval_secs() -> u64 {
     30
-}
-
-impl Default for WebConfig {
-    fn default() -> Self {
-        Self {
-            relay_comments: enabled(),
-            show_email_link: enabled(),
-            theme: Theme::default(),
-            refresh_interval_secs: default_refresh_interval_secs(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]

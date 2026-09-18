@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn loads_a_well_formed_config() {
     let config = Config::load("tests/configs/good.toml").unwrap();
-    assert_eq!(config.server.bind_address, "127.0.0.1:8080");
+    assert_eq!(config.web.bind_address, "127.0.0.1:8080");
     assert_eq!(
         config.mailing_list.posting_address,
         "group@googlegroups.com"
@@ -60,7 +60,7 @@ fn errors_when_the_file_does_not_exist() {
 #[test]
 fn username_and_password_default_to_empty_string_when_omitted() {
     let toml_str = r#"
-        [server]
+        [web]
         bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
@@ -84,7 +84,7 @@ fn username_and_password_default_to_empty_string_when_omitted() {
 #[test]
 fn honors_an_explicit_subject_prefix_and_suffix() {
     let toml_str = r#"
-        [server]
+        [web]
         bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
@@ -156,7 +156,7 @@ fn smtp_username_and_password_fall_back_to_the_file_when_no_env_is_set() {
 #[test]
 fn a_secret_missing_from_both_file_and_env_is_an_error() {
     let toml_str = r#"
-        [server]
+        [web]
         bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
@@ -190,7 +190,7 @@ fn body_footer_regex_is_none_when_omitted() {
 #[test]
 fn body_footer_regex_compiles_a_configured_pattern() {
     let toml_str = r#"
-        [server]
+        [web]
         bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
@@ -218,7 +218,7 @@ fn body_footer_regex_compiles_a_configured_pattern() {
 #[test]
 fn an_invalid_body_footer_regex_fails_to_parse() {
     let toml_str = r#"
-        [server]
+        [web]
         bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
@@ -246,12 +246,11 @@ fn theme_defaults_to_auto_when_omitted() {
 #[test]
 fn theme_parses_light_and_dark() {
     let toml_str = r#"
-        [server]
-        bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
         posting_address = "group@example.com"
         [web]
+        bind_address = "127.0.0.1:8080"
         theme = "dark"
         [imap]
         host = "imap.example.com"
@@ -269,12 +268,11 @@ fn theme_parses_light_and_dark() {
 #[test]
 fn an_unrecognized_theme_fails_to_parse() {
     let toml_str = r#"
-        [server]
-        bind_address = "127.0.0.1:8080"
         [mailing_list]
         bot_address = "bot@example.com"
         posting_address = "group@example.com"
         [web]
+        bind_address = "127.0.0.1:8080"
         theme = "sepia"
         [imap]
         host = "imap.example.com"

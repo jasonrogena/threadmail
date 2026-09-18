@@ -83,7 +83,7 @@ async fn serve(config_path: &str) {
         }),
     );
 
-    let bind_address = config.server.bind_address.clone();
+    let bind_address = config.web.bind_address.clone();
 
     let state = AppState::new(source, sink, store.clone(), store, config);
 

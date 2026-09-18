@@ -5,9 +5,7 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use crate::config::{
-    ImapConfig, MailingListConfig, ServerConfig, SmtpConfig, StorageConfig, Theme, WebConfig,
-};
+use crate::config::{ImapConfig, MailingListConfig, SmtpConfig, StorageConfig, Theme, WebConfig};
 use crate::sqlite_store::SqliteStore;
 
 use super::*;
@@ -105,9 +103,6 @@ fn state_with_ttl(
 // the fields they actually care about.
 fn test_config() -> Config {
     Config {
-        server: ServerConfig {
-            bind_address: "127.0.0.1:0".to_string(),
-        },
         mailing_list: MailingListConfig {
             bot_address: "bot@ourdomain.example".to_string(),
             posting_address: "group@googlegroups.com".to_string(),
@@ -116,6 +111,7 @@ fn test_config() -> Config {
             subject_suffix: String::new(),
         },
         web: WebConfig {
+            bind_address: "127.0.0.1:0".to_string(),
             relay_comments: true,
             show_email_link: true,
             theme: Theme::Auto,

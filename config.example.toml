@@ -1,7 +1,3 @@
-[server]
-# The address (host:port) the HTTP server listens on.
-bind_address = "127.0.0.1:8080"
-
 [mailing_list]
 # The bot account's own address. Used as the `From:` sender when relaying a
 # web-submitted comment; never shown to commenters as anything but the
@@ -26,9 +22,11 @@ posting_address = "our-comments@googlegroups.com"
 # subject_prefix = "Blog Comments: "
 # subject_suffix = ""
 
-# How the rendered page behaves for visitors. Optional — this whole section
-# can be omitted to use the defaults shown below.
+# The HTTP server and how the rendered page behaves for visitors.
 [web]
+# The address (host:port) the HTTP server listens on.
+bind_address = "127.0.0.1:8080"
+
 # Whether the no-JS web form relays comments into the mailing list. When
 # false, the page omits the comment form and posting to the comment
 # endpoint directly is rejected. Optional, defaults to true.
