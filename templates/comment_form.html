@@ -1,4 +1,4 @@
-<details class="reply-toggle">
+<details class="reply-toggle{% if !in_reply_to.is_empty() %} reply-toggle-reply{% endif %}">
 <summary>{{ label }}</summary>
 <form method="post" action="{{ action }}">
 <input type="hidden" name="in_reply_to" value="{{ in_reply_to }}">

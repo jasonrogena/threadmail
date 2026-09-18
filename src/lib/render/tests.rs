@@ -227,6 +227,8 @@ fn empty_offers_a_top_level_form_replying_to_nothing_when_relay_is_enabled() {
 
     assert!(html.contains("No comments yet"));
     assert!(html.contains("name=\"in_reply_to\" value=\"\""));
+    assert!(html.contains("class=\"reply-toggle\">"));
+    assert!(!html.contains("class=\"reply-toggle reply-toggle-reply\""));
 }
 
 #[test]
@@ -299,9 +301,26 @@ fn reply_form_is_collapsed_by_default() {
 
     let html = thread.render(&options(&mailing_list, &web));
 
-    assert!(html.contains("<details class=\"reply-toggle\">"));
-    assert!(!html.contains("<details class=\"reply-toggle\" open"));
+    assert!(html.contains("<details class=\"reply-toggle reply-toggle-reply\">"));
     assert!(!html.contains("<details open"));
+}
+
+#[test]
+fn only_the_reply_toggle_gets_the_reply_icon_class() {
+    let thread = Thread {
+        slug: "my-post".to_string(),
+        top_level_messages: vec![Node {
+            message: msg("root", "Alice", "first"),
+            replies: Vec::new(),
+        }],
+    };
+    let mailing_list = mailing_list_config();
+    let web = web_config(true, true);
+
+    let html = thread.render(&options(&mailing_list, &web));
+
+    assert!(html.contains("class=\"reply-toggle reply-toggle-reply\""));
+    assert!(html.contains("class=\"reply-toggle\">"));
 }
 
 #[test]
