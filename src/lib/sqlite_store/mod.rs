@@ -37,10 +37,10 @@ impl SqliteStore {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS messages (slug TEXT NOT NULL, raw BLOB NOT NULL);
-             CREATE INDEX IF NOT EXISTS messages_slug ON messages (slug);
-             CREATE TABLE IF NOT EXISTS refreshed_at (slug TEXT PRIMARY KEY, at INTEGER NOT NULL);
-             CREATE TABLE IF NOT EXISTS pending (
+            "CREATE TABLE IF NOT EXISTS incoming_comments (slug TEXT NOT NULL, raw BLOB NOT NULL);
+             CREATE INDEX IF NOT EXISTS incoming_comments_slug ON incoming_comments (slug);
+             CREATE TABLE IF NOT EXISTS incoming_comments_refreshed_at (slug TEXT PRIMARY KEY, at INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS outgoing_comments (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  slug TEXT NOT NULL,
                  from_address TEXT NOT NULL,
@@ -58,13 +58,13 @@ impl SqliteStore {
 impl IncomingCommentStore for SqliteStore {
     fn get(&self, slug: &str) -> Result<IncomingComment, BoxError> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT raw FROM messages WHERE slug = ?1")?;
+        let mut stmt = conn.prepare("SELECT raw FROM incoming_comments WHERE slug = ?1")?;
         let raw_messages = stmt
             .query_map(params![slug], |row| row.get::<_, Vec<u8>>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         let refreshed_at = conn
             .query_row(
-                "SELECT at FROM refreshed_at WHERE slug = ?1",
+                "SELECT at FROM incoming_comments_refreshed_at WHERE slug = ?1",
                 params![slug],
                 |row| row.get::<_, i64>(0),
             )
@@ -79,10 +79,13 @@ impl IncomingCommentStore for SqliteStore {
     fn store(&self, slug: &str, raw_messages: &[Vec<u8>]) -> Result<(), BoxError> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM messages WHERE slug = ?1", params![slug])?;
+        tx.execute(
+            "DELETE FROM incoming_comments WHERE slug = ?1",
+            params![slug],
+        )?;
         for raw in raw_messages {
             tx.execute(
-                "INSERT INTO messages (slug, raw) VALUES (?1, ?2)",
+                "INSERT INTO incoming_comments (slug, raw) VALUES (?1, ?2)",
                 params![slug, raw],
             )?;
         }
@@ -97,10 +100,10 @@ impl IncomingCommentStore for SqliteStore {
     }
 
     fn invalidate(&self, slug: &str) -> Result<(), BoxError> {
-        self.conn
-            .lock()
-            .unwrap()
-            .execute("DELETE FROM refreshed_at WHERE slug = ?1", params![slug])?;
+        self.conn.lock().unwrap().execute(
+            "DELETE FROM incoming_comments_refreshed_at WHERE slug = ?1",
+            params![slug],
+        )?;
         Ok(())
     }
 }
@@ -119,7 +122,7 @@ impl OutgoingCommentStore for SqliteStore {
             .unwrap_or_default()
             .as_secs();
         conn.execute(
-            "INSERT INTO pending (slug, from_address, to_address, raw, created_at)
+            "INSERT INTO outgoing_comments (slug, from_address, to_address, raw, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![slug, from_address, to_address, raw, created_at_secs as i64],
         )?;
@@ -137,8 +140,9 @@ impl OutgoingCommentStore for SqliteStore {
 
     fn pending(&self) -> Result<Vec<OutgoingComment>, BoxError> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT id, slug, from_address, to_address, raw, created_at FROM pending")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, slug, from_address, to_address, raw, created_at FROM outgoing_comments",
+        )?;
         let pending = stmt
             .query_map([], |row| {
                 let created_at_secs: i64 = row.get(5)?;
@@ -159,7 +163,7 @@ impl OutgoingCommentStore for SqliteStore {
         self.conn
             .lock()
             .unwrap()
-            .execute("DELETE FROM pending WHERE id = ?1", params![id])?;
+            .execute("DELETE FROM outgoing_comments WHERE id = ?1", params![id])?;
         Ok(())
     }
 }
@@ -170,7 +174,7 @@ fn touch(conn: &Connection, slug: &str) -> Result<(), rusqlite::Error> {
         .unwrap_or_default()
         .as_secs();
     conn.execute(
-        "INSERT INTO refreshed_at (slug, at) VALUES (?1, ?2)
+        "INSERT INTO incoming_comments_refreshed_at (slug, at) VALUES (?1, ?2)
          ON CONFLICT(slug) DO UPDATE SET at = excluded.at",
         params![slug, now as i64],
     )?;
