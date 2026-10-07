@@ -34,6 +34,7 @@ pub struct ImapSource {
     port: u16,
     username: String,
     password: String,
+    mailbox: String,
 }
 
 impl ImapSource {
@@ -43,6 +44,7 @@ impl ImapSource {
             port: config.port,
             username: config.username()?,
             password: config.password()?,
+            mailbox: config.mailbox.clone(),
         })
     }
 
@@ -73,7 +75,7 @@ impl ImapSource {
 impl MailSource for ImapSource {
     fn search_subject(&self, subject: &str) -> Result<Vec<Vec<u8>>, BoxError> {
         let mut session = self.connect()?;
-        session.select("INBOX")?;
+        session.select(&self.mailbox)?;
 
         // HEADER search is a substring match, so this also catches "Re: <slug>".
         let query = format!("HEADER Subject \"{}\"", escape_search_term(subject));

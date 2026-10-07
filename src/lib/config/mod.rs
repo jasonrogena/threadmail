@@ -146,10 +146,19 @@ pub struct ImapConfig {
     pub password: String,
     #[serde(default = "default_max_concurrent_searches")]
     pub max_concurrent_searches: usize,
+    // The folder searched for a thread's messages. Gmail keeps the bot's own
+    // posts only in Sent Mail (it drops the list's echo as a duplicate), so
+    // there this should be "[Gmail]/All Mail" to see web-relayed comments.
+    #[serde(default = "default_mailbox")]
+    pub mailbox: String,
 }
 
 fn default_max_concurrent_searches() -> usize {
     8
+}
+
+fn default_mailbox() -> String {
+    "INBOX".to_string()
 }
 
 impl ImapConfig {

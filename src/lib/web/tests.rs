@@ -146,6 +146,7 @@ fn test_config() -> Config {
             username: String::new(),
             password: String::new(),
             max_concurrent_searches: 8,
+            mailbox: "INBOX".to_string(),
         },
         smtp: SmtpConfig {
             host: "smtp.example.com".to_string(),

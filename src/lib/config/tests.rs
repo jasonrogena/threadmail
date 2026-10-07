@@ -23,6 +23,7 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert_eq!(config.mailing_list.subject_suffix, "");
     assert_eq!(config.web.refresh_interval_secs, 180);
     assert_eq!(config.imap.max_concurrent_searches, 8);
+    assert_eq!(config.imap.mailbox, "INBOX");
     assert_eq!(config.smtp.max_concurrent_submits, 4);
     assert_eq!(config.storage.incoming_message_ttl_secs, 30);
     assert_eq!(config.storage.outgoing_message_ttl_secs, 3 * 60 * 60);
@@ -33,6 +34,7 @@ fn defaults_the_toggles_and_limits_when_omitted() {
 fn honors_explicit_limits_when_given() {
     let config = Config::load("tests/configs/good-with-limits.toml").unwrap();
     assert_eq!(config.imap.max_concurrent_searches, 20);
+    assert_eq!(config.imap.mailbox, "[Gmail]/All Mail");
     assert_eq!(config.smtp.max_concurrent_submits, 2);
     assert_eq!(config.storage.incoming_message_ttl_secs, 30);
     assert_eq!(config.web.refresh_interval_secs, 90);

@@ -12,6 +12,7 @@ port = 993
 username = "bot@ourdomain.example"
 password = "app-password"
 max_concurrent_searches = 20
+mailbox = "[Gmail]/All Mail"
 
 [smtp]
 host = "smtp.gmail.com"

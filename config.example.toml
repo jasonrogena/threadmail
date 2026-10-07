@@ -62,6 +62,12 @@ password = "an-app-password-not-the-account-password"
 # hammer the mail provider. Optional, defaults to 8.
 # max_concurrent_searches = 8
 
+# The mailbox folder searched for a thread's messages. Optional, defaults
+# to "INBOX". On Gmail, set this to "[Gmail]/All Mail": Gmail keeps a
+# message the bot itself sent (every web-relayed comment) only in Sent Mail
+# and discards the list's copy as a duplicate, so INBOX never sees it.
+# mailbox = "INBOX"
+
 # Credentials used to submit a web-relayed comment to the list.
 [smtp]
 host = "smtp.gmail.com"
