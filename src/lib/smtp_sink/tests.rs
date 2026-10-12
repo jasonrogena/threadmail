@@ -47,36 +47,39 @@ fn smtp_config() -> SmtpConfig {
         username: String::new(),
         password: String::new(),
         max_concurrent_deliveries: 4,
+        delivery_timeout_secs: 60,
     }
 }
 
-fn storage_config(outgoing_message_ttl_secs: u64) -> StorageConfig {
+fn storage_config() -> StorageConfig {
     StorageConfig {
         path: ":memory:".to_string(),
         incoming_message_ttl_secs: 3600,
-        outgoing_message_ttl_secs,
+        outgoing_message_ttl_secs: NO_OUTGOING_COMMENT_EXPIRY,
         outgoing_comment_sweep_interval_secs: TEST_SWEEP_INTERVAL_SECS,
     }
 }
 
-fn sink_with_ttl(
+fn sink_with(
     transport: StubTransport,
     outgoing_comments: Arc<dyn OutgoingCommentStore>,
-    outgoing_message_ttl_secs: u64,
+    storage: &StorageConfig,
 ) -> SmtpSink<StubTransport> {
-    SmtpSink::with_transport(
-        transport,
-        &smtp_config(),
-        &storage_config(outgoing_message_ttl_secs),
-        outgoing_comments,
-    )
+    SmtpSink::with_transport(transport, &smtp_config(), storage, outgoing_comments)
 }
 
 fn sink(
     transport: StubTransport,
     outgoing_comments: Arc<dyn OutgoingCommentStore>,
 ) -> SmtpSink<StubTransport> {
-    sink_with_ttl(transport, outgoing_comments, NO_OUTGOING_COMMENT_EXPIRY)
+    sink_with(transport, outgoing_comments, &storage_config())
+}
+
+// Long enough that a test only sees a second sweep if something woke the worker early.
+fn storage_config_with_a_long_interval() -> StorageConfig {
+    let mut storage = storage_config();
+    storage.outgoing_comment_sweep_interval_secs = 3600;
+    storage
 }
 
 fn store() -> Arc<SqliteStore> {
@@ -106,14 +109,6 @@ fn enqueue_directly(outgoing_comments: &SqliteStore) {
 impl<T> SmtpSink<T> {
     fn is_running(&self) -> bool {
         self.inner.worker.lock().unwrap().is_some()
-    }
-
-    // The worker only notices an emptied outgoing comment queue on its next sweep, so this outlasts a full interval.
-    async fn wait_for_worker_exit(&self) {
-        let deadline = Instant::now() + Duration::from_secs(TEST_SWEEP_INTERVAL_SECS * 3);
-        while self.is_running() && Instant::now() < deadline {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
     }
 }
 
@@ -196,7 +191,9 @@ async fn an_expired_comment_is_dropped_without_being_sent() {
     let transport = StubTransport::new_ok();
     let outgoing_comments = store();
     // Already expired the instant it's queued.
-    let sink = sink_with_ttl(transport.clone(), outgoing_comments.clone(), 0);
+    let mut storage = storage_config();
+    storage.outgoing_message_ttl_secs = 0;
+    let sink = sink_with(transport.clone(), outgoing_comments.clone(), &storage);
 
     sink.submit("my-post", &envelope(), ROOT).unwrap();
     wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
@@ -229,7 +226,7 @@ async fn the_worker_exits_once_the_outgoing_comment_queue_is_empty() {
 
     sink.submit("my-post", &envelope(), ROOT).unwrap();
     assert!(sink.is_running());
-    sink.wait_for_worker_exit().await;
+    wait_for(|| !sink.is_running()).await;
 
     assert_eq!(transport.messages().len(), 1);
     assert!(!sink.is_running());
@@ -253,7 +250,7 @@ async fn a_submit_restarts_the_worker_after_it_has_exited() {
     for _ in 0..2 {
         sink.submit("my-post", &envelope(), ROOT).unwrap();
         assert!(sink.is_running());
-        sink.wait_for_worker_exit().await;
+        wait_for(|| !sink.is_running()).await;
         assert!(!sink.is_running());
     }
 
@@ -263,13 +260,17 @@ async fn a_submit_restarts_the_worker_after_it_has_exited() {
 #[tokio::test]
 async fn the_worker_keeps_running_while_a_delivery_is_still_failing() {
     let outgoing_comments = store();
-    let sink = sink(StubTransport::new_error(), outgoing_comments.clone());
+    let transport = StubTransport::new_error();
+    let sink = sink(transport.clone(), outgoing_comments.clone());
 
     sink.submit("my-post", &envelope(), ROOT).unwrap();
     tokio::time::sleep(Duration::from_secs(TEST_SWEEP_INTERVAL_SECS * 2)).await;
 
     assert!(sink.is_running());
     assert_eq!(outgoing_comments.pending().unwrap().len(), 1);
+    // The first attempt plus at least one retry an interval later, but no tight retry loop.
+    let attempts = transport.messages().len();
+    assert!((2..=4).contains(&attempts), "{attempts} attempts");
 }
 
 #[tokio::test]
@@ -303,7 +304,7 @@ async fn health_is_ok_while_the_worker_is_idle() {
 async fn health_reports_a_stalled_worker() {
     let sink = sink(StubTransport::new_ok(), store());
     *sink.inner.worker.lock().unwrap() = Some(SweepHeartbeat {
-        interval: Duration::from_secs(TEST_SWEEP_INTERVAL_SECS),
+        max_gap: Duration::from_secs(TEST_SWEEP_INTERVAL_SECS),
         last_swept: Instant::now() - Duration::from_secs(3600),
     });
 
@@ -315,4 +316,38 @@ async fn health_reports_an_unreachable_store() {
     let sink = sink(StubTransport::new_ok(), Arc::new(FailingStore));
 
     assert!(sink.health().is_err());
+}
+
+#[tokio::test]
+async fn the_worker_exits_without_waiting_an_interval_once_its_deliveries_succeed() {
+    let sink = sink_with(
+        StubTransport::new_ok(),
+        store(),
+        &storage_config_with_a_long_interval(),
+    );
+
+    sink.submit("my-post", &envelope(), ROOT).unwrap();
+    wait_for(|| !sink.is_running()).await;
+
+    assert!(!sink.is_running());
+}
+
+#[tokio::test]
+async fn a_submit_wakes_a_worker_sleeping_between_retries() {
+    let transport = StubTransport::new_error();
+    let sink = sink_with(
+        transport.clone(),
+        store(),
+        &storage_config_with_a_long_interval(),
+    );
+
+    sink.submit("first-post", &envelope(), ROOT).unwrap();
+    wait_for(|| transport.messages().len() == 1).await;
+    // Let the worker reach its retry sleep before the next submit.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    sink.submit("second-post", &envelope(), ROOT).unwrap();
+    wait_for(|| transport.messages().len() >= 3).await;
+
+    // The woken sweep retries the first comment and attempts the second.
+    assert_eq!(transport.messages().len(), 3);
 }

@@ -210,10 +210,17 @@ pub struct SmtpConfig {
         alias = "max_concurrent_submits"
     )]
     pub max_concurrent_deliveries: usize,
+    // Also how long the stall check allows one delivery to take, so a slow one isn't reported as stalled.
+    #[serde(default = "default_delivery_timeout_secs")]
+    pub delivery_timeout_secs: u64,
 }
 
 fn default_max_concurrent_deliveries() -> usize {
     4
+}
+
+fn default_delivery_timeout_secs() -> u64 {
+    60
 }
 
 impl SmtpConfig {

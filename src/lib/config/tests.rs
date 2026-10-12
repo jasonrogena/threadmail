@@ -25,6 +25,7 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert_eq!(config.imap.max_concurrent_searches, 8);
     assert_eq!(config.imap.mailbox, "INBOX");
     assert_eq!(config.smtp.max_concurrent_deliveries, 4);
+    assert_eq!(config.smtp.delivery_timeout_secs, 60);
     assert_eq!(config.storage.incoming_message_ttl_secs, 30);
     assert_eq!(config.storage.outgoing_message_ttl_secs, 3 * 60 * 60);
     assert_eq!(config.storage.outgoing_comment_sweep_interval_secs, 10);
@@ -36,6 +37,7 @@ fn honors_explicit_limits_when_given() {
     assert_eq!(config.imap.max_concurrent_searches, 20);
     assert_eq!(config.imap.mailbox, "[Gmail]/All Mail");
     assert_eq!(config.smtp.max_concurrent_deliveries, 2);
+    assert_eq!(config.smtp.delivery_timeout_secs, 20);
     assert_eq!(config.storage.incoming_message_ttl_secs, 30);
     assert_eq!(config.web.refresh_interval_secs, 90);
 }

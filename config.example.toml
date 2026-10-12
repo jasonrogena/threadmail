@@ -79,6 +79,10 @@ password = "an-app-password-not-the-account-password"
 # Cap on how many SMTP deliveries run at once. Optional, defaults to 4.
 # max_concurrent_deliveries = 4
 
+# How long one SMTP network operation may take before a delivery fails and
+# is retried later. Optional, defaults to 60.
+# delivery_timeout_secs = 60
+
 # Backs both the incoming comment cache and the outgoing comment queue. A
 # web-submitted comment is queued here immediately and delivered over SMTP in
 # the background, so the visitor doesn't wait on the mail provider; this

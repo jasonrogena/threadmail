@@ -20,6 +20,7 @@ port = 587
 username = "bot@ourdomain.example"
 password = "app-password"
 max_concurrent_deliveries = 2
+delivery_timeout_secs = 20
 
 [storage]
 path = "/tmp/threadmail-test-store.db"

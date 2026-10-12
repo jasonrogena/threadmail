@@ -162,6 +162,7 @@ fn test_config() -> Config {
             username: String::new(),
             password: String::new(),
             max_concurrent_deliveries: 4,
+            delivery_timeout_secs: 60,
         },
         storage: StorageConfig {
             path: ":memory:".to_string(),
