@@ -7,6 +7,31 @@ make test   # clippy -D warnings, fmt --check, cargo test
 
 TLS is rustls, not native-tls/OpenSSL, since OpenSSL is painful to statically link under musl.
 
+## Running the e2e tests locally
+
+`make test`/`cargo test` run `tests/e2e.rs` unconditionally, so a real [GreenMail](https://greenmail-mail-test.github.io) mail server must already be listening on 127.0.0.1:3465 (SMTPS) and :3993 (IMAPS) before you run them — these aren't skipped if it's missing, they just fail to connect. CI starts one automatically (see `.github/workflows/test.yml`); locally, start the same thing yourself with Docker or Podman:
+
+```sh
+docker run -d --name greenmail \
+  -p 3465:3465 -p 3993:3993 \
+  -v "$(pwd)/tests/fixtures/greenmail.p12:/keystore.p12" \
+  -e GREENMAIL_OPTS='-Dgreenmail.setup.test.smtps -Dgreenmail.setup.test.imaps -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.tls.keystore.file=/keystore.p12 -Dgreenmail.tls.keystore.password=threadmail-e2e' \
+  docker.io/greenmail/standalone:2.1.8
+```
+
+The keystore (`tests/fixtures/greenmail.p12` + its CA, `greenmail-ca.pem`) is a committed, throwaway test-only cert: GreenMail's own default cert has no Subject Alternative Name, which rustls rejects outright, so this stands in for it. It's not a secret and isn't used for anything but letting GreenMail serve TLS here.
+
+The container keeps whatever mail it received across test runs, so a second run against the same container sees leftover messages from the first (each e2e test asserts an exact count). Restart it (`docker rm -f greenmail` and rerun the command above) between local runs of `cargo test --test e2e` for a clean slate — a fresh GitHub Actions job never has this problem, since its service container is always new.
+
+## Dependency updates
+
+[Dependabot](.github/dependabot.yml) opens a PR weekly for outdated Cargo and GitHub Actions dependencies. [`.github/workflows/dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) approves and auto-merges every one of those PRs, including major-version bumps, once the `Test` workflow passes — nothing is held back for manual review. If a bump breaks something the test suite doesn't catch, that's a gap in the tests to fix, not a reason to gate the merge by hand.
+
+This needs two repository settings that can't be set from a workflow file, both under **Settings → General → Pull Requests** (and **Settings → Branches** for the second):
+
+- **Allow auto-merge** must be enabled, or `gh pr merge --auto` has nothing to queue onto.
+- **main**'s branch protection must **require the `Test` status check to pass before merging**. Without this, `--auto` merges immediately instead of waiting for CI, since there's nothing configured to wait for.
+
 ## Code layout
 
 The core (`mail`, `thread`, `render`, `compose`) is pure, I/O-free functions and data, unit-tested with literal fixtures — `render` is the one exception that depends on `config` (its `Options` holds config sub-structs by reference rather than loose passthrough fields; see the convention below), the rest have no dependency on it. The I/O boundaries are four small traits: `MailSource`/`MailSink` (one real adapter each, `imap_source`/`smtp_sink`) and `IncomingCommentStore`/`OutgoingCommentStore` (both implemented by `sqlite_store`, one SQLite file). `MailSink::submit` means "accepted for delivery": `smtp_sink` queues to `OutgoingCommentStore` and delivers from the outgoing comment worker, which runs only while something is queued (`boot` does the first sweep after a restart), reporting each delivery back through the `on_delivered` hook. The crate root (`src/lib/mod.rs`) owns `AppState`, the wiring of those adapters plus the background IMAP refresh, and `boot()`s the sink at startup.

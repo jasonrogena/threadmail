@@ -1,0 +1,30 @@
+# Fixture for tests/e2e.rs's retrieval-only test (a comment that arrived by
+# direct email reply, never through the web form). See e2e-top-level.toml for
+# why this is fully static, and why each e2e test gets its own address and
+# port.
+
+[mailing_list]
+bot_address = "bot@example.com"
+posting_address = "e2e-retrieval@example.com"
+
+[web]
+bind_address = "127.0.0.1:18093"
+
+[imap]
+host = "127.0.0.1"
+port = 3993
+username = "e2e-retrieval@example.com"
+password = "unused"
+ca_file = "tests/fixtures/greenmail-ca.pem"
+
+[smtp]
+host = "127.0.0.1"
+port = 3465
+username = "e2e-retrieval@example.com"
+password = "unused"
+ca_file = "tests/fixtures/greenmail-ca.pem"
+tls_mode = "implicit"
+
+[storage]
+path = ":memory:"
+incoming_message_ttl_secs = 3600

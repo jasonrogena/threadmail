@@ -21,5 +21,20 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Start GreenMail
+        run: |
+          docker run -d --name greenmail \
+            -p 3465:3465 -p 3993:3993 \
+            -v "$(pwd)/tests/fixtures/greenmail.p12:/keystore.p12" \
+            -e GREENMAIL_OPTS='-Dgreenmail.setup.test.smtps -Dgreenmail.setup.test.imaps -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.tls.keystore.file=/keystore.p12 -Dgreenmail.tls.keystore.password=threadmail-e2e' \
+            docker.io/greenmail/standalone:2.1.8
+          for _ in $(seq 1 30); do
+            (exec 3<>/dev/tcp/127.0.0.1/3993) 2>/dev/null && exit 0
+            sleep 1
+          done
+          echo "GreenMail never started listening on 127.0.0.1:3993" >&2
+          docker logs greenmail
+          exit 1
+
       - name: Test
         run: make test

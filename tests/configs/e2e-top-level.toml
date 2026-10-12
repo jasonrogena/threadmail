@@ -1,0 +1,36 @@
+# Fixture for tests/e2e.rs's top-level-comment test. Fully static: GreenMail's
+# ports and this file's own ports are fixed by convention (see
+# .github/workflows/test.yml for CI, DEVELOPMENT.md for running it locally),
+# so nothing here needs runtime substitution.
+#
+# GreenMail's auth-disabled mode routes a delivered message straight into
+# the mailbox matching its exact envelope recipient, with no real mailing-list
+# fan-out, so the "mailing list" here is one address acting as both. Each
+# e2e test gets its own address so they don't see each other's mail on the
+# one shared GreenMail instance.
+
+[mailing_list]
+bot_address = "bot@example.com"
+posting_address = "e2e-top-level@example.com"
+
+[web]
+bind_address = "127.0.0.1:18091"
+
+[imap]
+host = "127.0.0.1"
+port = 3993
+username = "e2e-top-level@example.com"
+password = "unused"
+ca_file = "tests/fixtures/greenmail-ca.pem"
+
+[smtp]
+host = "127.0.0.1"
+port = 3465
+username = "e2e-top-level@example.com"
+password = "unused"
+ca_file = "tests/fixtures/greenmail-ca.pem"
+tls_mode = "implicit"
+
+[storage]
+path = ":memory:"
+incoming_message_ttl_secs = 3600
