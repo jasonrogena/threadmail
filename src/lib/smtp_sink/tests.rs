@@ -48,6 +48,8 @@ fn smtp_config() -> SmtpConfig {
         password: String::new(),
         max_concurrent_deliveries: 4,
         delivery_timeout_secs: 60,
+        ca_file: None,
+        tls_mode: SmtpTlsMode::Starttls,
     }
 }
 
@@ -57,6 +59,17 @@ fn storage_config() -> StorageConfig {
         incoming_message_ttl_secs: 3600,
         outgoing_message_ttl_secs: NO_OUTGOING_COMMENT_EXPIRY,
         outgoing_comment_sweep_interval_secs: TEST_SWEEP_INTERVAL_SECS,
+    }
+}
+
+#[test]
+fn new_errors_when_the_configured_ca_file_does_not_exist() {
+    let mut smtp = smtp_config();
+    smtp.ca_file = Some("/nonexistent/ca.pem".to_string());
+    let store: Arc<dyn OutgoingCommentStore> = Arc::new(SqliteStore::open(":memory:").unwrap());
+    match SmtpSink::new(&smtp, &storage_config(), store) {
+        Ok(_) => panic!("expected a CA file error"),
+        Err(err) => assert!(matches!(err, Error::CaFile(_))),
     }
 }
 

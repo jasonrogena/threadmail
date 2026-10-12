@@ -8,7 +8,7 @@ use tower::ServiceExt;
 
 use crate::AppState;
 use crate::config::{
-    Config, ImapConfig, MailingListConfig, SmtpConfig, StorageConfig, Theme, WebConfig,
+    Config, ImapConfig, MailingListConfig, SmtpConfig, SmtpTlsMode, StorageConfig, Theme, WebConfig,
 };
 use crate::source::{MailSink, MailSource};
 use crate::sqlite_store::SqliteStore;
@@ -155,6 +155,7 @@ fn test_config() -> Config {
             password: String::new(),
             max_concurrent_searches: 8,
             mailbox: "INBOX".to_string(),
+            ca_file: None,
         },
         smtp: SmtpConfig {
             host: "smtp.example.com".to_string(),
@@ -163,6 +164,8 @@ fn test_config() -> Config {
             password: String::new(),
             max_concurrent_deliveries: 4,
             delivery_timeout_secs: 60,
+            ca_file: None,
+            tls_mode: SmtpTlsMode::Starttls,
         },
         storage: StorageConfig {
             path: ":memory:".to_string(),
@@ -788,4 +791,95 @@ async fn healthz_returns_service_unavailable_when_the_mail_sink_is_unhealthy() {
     let (status, _) = get_html(WebState::new(app_state).router(), "/healthz").await;
 
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn a_submitted_top_level_comment_appears_once_the_thread_reloads() {
+    let mailbox = crate::testing::SharedMailbox::default();
+    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let app_state = AppState::new(
+        Arc::new(mailbox.source()),
+        Arc::new(mailbox.sink()),
+        store,
+        test_config(),
+    );
+    app_state.boot();
+    seed(&app_state, "my-post", &[]);
+    let app = WebState::new(app_state.clone()).router();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/thread/my-post")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("name=Bob&body=First+comment&in_reply_to="))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    wait_for(|| {
+        !app_state
+            .cache()
+            .get("my-post")
+            .unwrap()
+            .raw_messages
+            .is_empty()
+    })
+    .await;
+
+    let (status, html) = get_html(app, "/thread/my-post").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Bob (via web)"));
+    assert!(html.contains("First comment"));
+}
+
+#[tokio::test]
+async fn a_submitted_reply_nests_under_its_parent_once_the_thread_reloads() {
+    let mailbox = crate::testing::SharedMailbox::default();
+    mailbox.seed(&[ROOT.to_vec()]);
+    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
+    let app_state = AppState::new(
+        Arc::new(mailbox.source()),
+        Arc::new(mailbox.sink()),
+        store,
+        test_config(),
+    );
+    app_state.boot();
+    seed(&app_state, "my-post", &[ROOT.to_vec()]);
+    let app = WebState::new(app_state.clone()).router();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/thread/my-post")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(
+                    "name=Bob&body=I+agree&in_reply_to=root%40example.com",
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    wait_for(|| app_state.cache().get("my-post").unwrap().raw_messages.len() == 2).await;
+
+    let (_, html) = get_html(app, "/thread/my-post").await;
+
+    // The reply must render inside the root's own `<ol class="replies">`,
+    // not merely appear somewhere later in the page.
+    let root_idx = html.find("Great post!").expect("root comment missing");
+    let replies_idx = html
+        .find("class=\"replies\"")
+        .expect("no nested replies list");
+    let reply_idx = html.find("I agree").expect("reply comment missing");
+
+    assert!(root_idx < replies_idx);
+    assert!(replies_idx < reply_idx);
+    assert!(html.contains("Bob (via web)"));
 }

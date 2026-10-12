@@ -3,11 +3,14 @@ use std::time::{Duration, Instant};
 
 use lettre::address::Envelope;
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{
+    Certificate, CertificateStore, Tls, TlsParameters, TlsParametersBuilder,
+};
 use lettre::{SmtpTransport, Transport};
 use tokio::sync::{Notify, Semaphore};
 use tokio::task::JoinSet;
 
-use crate::config::{SmtpConfig, StorageConfig};
+use crate::config::{SmtpConfig, SmtpTlsMode, StorageConfig};
 use crate::source::{BoxError, MailSink, OnDelivered};
 use crate::store::{OutgoingComment, OutgoingCommentStore};
 
@@ -29,6 +32,8 @@ pub enum Error {
     StoreUnreachable(#[source] BoxError),
     #[error("outgoing comment worker stalled")]
     WorkerStalled,
+    #[error("could not read the configured CA certificate file")]
+    CaFile(#[from] std::io::Error),
 }
 
 // Mutated in place after the first sweep; the Mutex around it is what makes that safe.
@@ -79,8 +84,23 @@ impl SmtpSink {
         storage: &StorageConfig,
         outgoing_comments: Arc<dyn OutgoingCommentStore>,
     ) -> Result<Self, Error> {
-        let transport = SmtpTransport::starttls_relay(&smtp.host)?
+        let tls_parameters = match &smtp.ca_file {
+            Some(path) => {
+                let pem = std::fs::read(path)?;
+                TlsParametersBuilder::new(smtp.host.clone())
+                    .certificate_store(CertificateStore::None)
+                    .add_root_certificate(Certificate::from_pem(&pem)?)
+                    .build()?
+            }
+            None => TlsParameters::new(smtp.host.clone())?,
+        };
+        let tls = match smtp.tls_mode {
+            SmtpTlsMode::Starttls => Tls::Required(tls_parameters),
+            SmtpTlsMode::Implicit => Tls::Wrapper(tls_parameters),
+        };
+        let transport = SmtpTransport::builder_dangerous(&smtp.host)
             .port(smtp.port)
+            .tls(tls)
             .credentials(Credentials::new(smtp.username()?, smtp.password()?))
             .timeout(Some(Duration::from_secs(smtp.delivery_timeout_secs)))
             .build();

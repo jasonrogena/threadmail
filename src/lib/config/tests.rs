@@ -186,6 +186,71 @@ fn a_secret_missing_from_both_file_and_env_is_an_error() {
 }
 
 #[test]
+fn ca_file_is_none_when_omitted() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert!(config.imap.ca_file.is_none());
+    assert!(config.smtp.ca_file.is_none());
+}
+
+#[test]
+fn ca_file_is_parsed_when_given() {
+    let toml_str = r#"
+        [web]
+        bind_address = "127.0.0.1:8080"
+        [mailing_list]
+        bot_address = "bot@example.com"
+        posting_address = "group@example.com"
+        [imap]
+        host = "imap.example.com"
+        port = 993
+        ca_file = "/etc/threadmail/imap-ca.pem"
+        [smtp]
+        host = "smtp.example.com"
+        port = 587
+        ca_file = "/etc/threadmail/smtp-ca.pem"
+        [storage]
+        path = "/tmp/threadmail-test-store.db"
+    "#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(
+        config.imap.ca_file,
+        Some("/etc/threadmail/imap-ca.pem".to_string())
+    );
+    assert_eq!(
+        config.smtp.ca_file,
+        Some("/etc/threadmail/smtp-ca.pem".to_string())
+    );
+}
+
+#[test]
+fn smtp_tls_mode_defaults_to_starttls_when_omitted() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert_eq!(config.smtp.tls_mode, SmtpTlsMode::Starttls);
+}
+
+#[test]
+fn smtp_tls_mode_parses_implicit_when_given() {
+    let toml_str = r#"
+        [web]
+        bind_address = "127.0.0.1:8080"
+        [mailing_list]
+        bot_address = "bot@example.com"
+        posting_address = "group@example.com"
+        [imap]
+        host = "imap.example.com"
+        port = 993
+        [smtp]
+        host = "smtp.example.com"
+        port = 465
+        tls_mode = "implicit"
+        [storage]
+        path = "/tmp/threadmail-test-store.db"
+    "#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.smtp.tls_mode, SmtpTlsMode::Implicit);
+}
+
+#[test]
 fn body_footer_regex_is_none_when_omitted() {
     let config = Config::load("tests/configs/good.toml").unwrap();
     assert!(config.mailing_list.body_footer_regex.is_none());

@@ -165,6 +165,11 @@ pub struct ImapConfig {
     // there this should be "[Gmail]/All Mail" to see web-relayed comments.
     #[serde(default = "default_mailbox")]
     pub mailbox: String,
+    // Overrides the public root CA store with this one PEM file, for an
+    // IMAP server behind an internal CA. Rarely needed; omit for any
+    // provider with a publicly-trusted certificate.
+    #[serde(default)]
+    pub ca_file: Option<String>,
 }
 
 fn default_max_concurrent_searches() -> usize {
@@ -213,6 +218,23 @@ pub struct SmtpConfig {
     // Also how long the stall check allows one delivery to take, so a slow one isn't reported as stalled.
     #[serde(default = "default_delivery_timeout_secs")]
     pub delivery_timeout_secs: u64,
+    // Overrides the public root CA store with this one PEM file, for an
+    // SMTP server behind an internal CA. Rarely needed; omit for any
+    // provider with a publicly-trusted certificate.
+    #[serde(default)]
+    pub ca_file: Option<String>,
+    // Most providers speak Starttls (a plaintext connection upgraded to TLS); a few
+    // only offer Implicit TLS (encrypted from the first byte, e.g. port 465/"smtps").
+    #[serde(default)]
+    pub tls_mode: SmtpTlsMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SmtpTlsMode {
+    #[default]
+    Starttls,
+    Implicit,
 }
 
 fn default_max_concurrent_deliveries() -> usize {

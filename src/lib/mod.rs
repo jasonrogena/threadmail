@@ -18,6 +18,8 @@ pub mod smtp_sink;
 pub mod source;
 pub mod sqlite_store;
 pub mod store;
+#[cfg(test)]
+pub mod testing;
 pub mod thread;
 pub mod web;
 
