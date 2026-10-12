@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::config::{MailingListConfig, WebConfig};
+use crate::config::{MailingListConfig, Theme, WebConfig};
 use crate::mail::{Author, Subject};
 use crate::thread::{Node, Thread};
 
@@ -68,10 +68,36 @@ struct CommentFormTemplate<'a> {
     toggle_id: String,
 }
 
-fn style(theme: &str) -> String {
-    StyleTemplate { theme }
+impl Theme {
+    fn style_html(&self) -> String {
+        StyleTemplate {
+            theme: self.as_str(),
+        }
         .render()
         .expect("style template is valid")
+    }
+}
+
+impl Options<'_> {
+    // Empty when the web form is disabled, so callers can embed it unconditionally.
+    fn comment_form(&self, in_reply_to: &str, label: &str) -> String {
+        if !self.web.relay_comments {
+            return String::new();
+        }
+        let toggle_id = if in_reply_to.is_empty() {
+            "comment-top-level".to_string()
+        } else {
+            format!("comment-reply-{in_reply_to}")
+        };
+        CommentFormTemplate {
+            action: self.comment_action,
+            in_reply_to,
+            label,
+            toggle_id,
+        }
+        .render()
+        .expect("comment form template is valid")
+    }
 }
 
 impl Thread {
@@ -82,14 +108,10 @@ impl Thread {
             .map(|node| node.render(options))
             .collect::<Vec<_>>()
             .join("\n");
-        let form_html = if options.web.relay_comments {
-            comment_form(options.comment_action, "", "Leave a comment")
-        } else {
-            String::new()
-        };
+        let form_html = options.comment_form("", "Leave a comment");
         ThreadTemplate {
             slug: &self.slug,
-            style_html: style(options.web.theme.as_str()),
+            style_html: options.web.theme.style_html(),
             top_level_html,
             form_html,
             mailto_address: &options.mailing_list.posting_address,
@@ -110,14 +132,10 @@ impl Thread {
 }
 
 pub fn empty(slug: &str, options: &Options) -> String {
-    let form_html = if options.web.relay_comments {
-        comment_form(options.comment_action, "", "Leave a comment")
-    } else {
-        String::new()
-    };
+    let form_html = options.comment_form("", "Leave a comment");
     EmptyTemplate {
         slug,
-        style_html: style(options.web.theme.as_str()),
+        style_html: options.web.theme.style_html(),
         form_html,
         mailto_address: &options.mailing_list.posting_address,
         mailto_subject: Subject {
@@ -137,11 +155,7 @@ pub fn empty(slug: &str, options: &Options) -> String {
 
 impl Node {
     fn render(&self, options: &Options) -> String {
-        let form_html = if options.web.relay_comments {
-            comment_form(options.comment_action, &self.message.message_id, "Reply")
-        } else {
-            String::new()
-        };
+        let form_html = options.comment_form(&self.message.message_id, "Reply");
         let replies_html = self.replies.iter().map(|r| r.render(options)).collect();
 
         CommentTemplate {
@@ -154,22 +168,6 @@ impl Node {
         .render()
         .expect("comment template is valid")
     }
-}
-
-fn comment_form(action: &str, in_reply_to: &str, label: &str) -> String {
-    let toggle_id = if in_reply_to.is_empty() {
-        "comment-top-level".to_string()
-    } else {
-        format!("comment-reply-{in_reply_to}")
-    };
-    CommentFormTemplate {
-        action,
-        in_reply_to,
-        label,
-        toggle_id,
-    }
-    .render()
-    .expect("comment form template is valid")
 }
 
 fn escape(input: &str) -> String {

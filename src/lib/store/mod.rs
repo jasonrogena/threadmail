@@ -1,9 +1,19 @@
 use std::time::{Duration, SystemTime};
 
+use lettre::address::Envelope;
+
 use crate::source::BoxError;
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("invalid outgoing comment address")]
+    Address(#[from] lettre::address::AddressError),
+    #[error("could not build the outgoing comment envelope")]
+    Envelope(#[from] lettre::error::Error),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncomingComment {
@@ -51,10 +61,16 @@ impl OutgoingComment {
     pub fn is_expired(&self, ttl: Duration) -> bool {
         self.created_at.elapsed().unwrap_or(Duration::MAX) >= ttl
     }
+
+    pub fn envelope(&self) -> Result<Envelope, Error> {
+        let from: lettre::Address = self.from_address.parse()?;
+        let to: lettre::Address = self.to_address.parse()?;
+        Ok(Envelope::new(Some(from), vec![to])?)
+    }
 }
 
 // A durable queue of comments accepted from the web form but not yet
-// relayed by SMTP, so a submission can be acknowledged immediately and
+// delivered over SMTP, so a submission can be acknowledged immediately and
 // delivered in the background, surviving a restart in between.
 pub trait OutgoingCommentStore: Send + Sync {
     fn enqueue(

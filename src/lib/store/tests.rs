@@ -48,3 +48,21 @@ fn a_message_older_than_the_ttl_is_expired() {
     let created_at = SystemTime::now() - Duration::from_secs(120);
     assert!(pending(created_at).is_expired(Duration::from_secs(60)));
 }
+
+#[test]
+fn an_outgoing_comments_envelope_runs_from_its_from_to_its_to_address() {
+    let envelope = pending(SystemTime::now()).envelope().unwrap();
+    assert_eq!(
+        envelope.from().map(ToString::to_string).as_deref(),
+        Some("bot@example.com")
+    );
+    assert_eq!(envelope.to().len(), 1);
+    assert_eq!(envelope.to()[0].to_string(), "group@example.com");
+}
+
+#[test]
+fn an_outgoing_comment_with_an_invalid_address_has_no_envelope() {
+    let mut comment = pending(SystemTime::now());
+    comment.to_address = "not an address".to_string();
+    assert!(matches!(comment.envelope(), Err(Error::Address(_))));
+}

@@ -1,6 +1,7 @@
 use std::fs;
 use std::io;
 
+use lettre::address::Envelope;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -18,6 +19,10 @@ pub enum Error {
         field: &'static str,
         env_var: &'static str,
     },
+    #[error("invalid mailing list address")]
+    Address(#[from] lettre::address::AddressError),
+    #[error("could not build the mailing list envelope")]
+    Envelope(#[from] lettre::error::Error),
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +52,15 @@ pub struct MailingListConfig {
     pub subject_prefix: String,
     #[serde(default)]
     pub subject_suffix: String,
+}
+
+impl MailingListConfig {
+    // Every outgoing comment is relayed by the bot to the list, so this is the only envelope there is.
+    pub fn envelope(&self) -> Result<Envelope, Error> {
+        let from: lettre::Address = self.bot_address.parse()?;
+        let to: lettre::Address = self.posting_address.parse()?;
+        Ok(Envelope::new(Some(from), vec![to])?)
+    }
 }
 
 fn deserialize_body_footer_regex<'de, D>(deserializer: D) -> Result<Option<Regex>, D::Error>
@@ -190,11 +204,15 @@ pub struct SmtpConfig {
     pub username: String,
     #[serde(default)]
     pub password: String,
-    #[serde(default = "default_max_concurrent_submits")]
-    pub max_concurrent_submits: usize,
+    // The alias keeps configs written before the rename loading.
+    #[serde(
+        default = "default_max_concurrent_deliveries",
+        alias = "max_concurrent_submits"
+    )]
+    pub max_concurrent_deliveries: usize,
 }
 
-fn default_max_concurrent_submits() -> usize {
+fn default_max_concurrent_deliveries() -> usize {
     4
 }
 

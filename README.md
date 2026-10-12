@@ -24,9 +24,9 @@ The same thread is an actual mailing list conversation in Google Groups:
 
 A bot account subscribed to the list receives a copy of every message; threadmail reads that account's own IMAP mailbox (no Google Groups API, works with any mailing list technology). A post's slug is the email `Subject`; the thread root is the earliest top-level message with that subject, and replies attach via `In-Reply-To`/`References`, falling back to "subject still carries the slug" for messages a client failed to thread correctly.
 
-`GET /thread/<slug>` serves from a local cache, refreshed from IMAP in the background on an interval, so a page loads instantly and a traffic spike doesn't hammer the mail provider. A submitted comment is queued locally and relayed by SMTP in the background, retried until delivered or a TTL passes, so posting doesn't block on SMTP and a restart mid-delivery doesn't lose it. Both live in one SQLite file that's safe to delete: IMAP delivery, not that file, is what actually counts as said.
+`GET /thread/<slug>` serves from a local cache, refreshed from IMAP in the background on an interval, so a page loads instantly and a traffic spike doesn't hammer the mail provider. A submitted comment is queued locally and delivered over SMTP in the background, retried until it succeeds or a TTL passes, so posting doesn't block on SMTP and a restart mid-delivery doesn't lose it. Both live in one SQLite file that's safe to delete: IMAP delivery, not that file, is what actually counts as said.
 
-Comments arrive two ways, each independently toggleable in config: a no-JS `<form>` (relayed by the bot account over SMTP) or a plain `mailto:` link for commenting directly by email. Outbound IMAP searches and SMTP submissions are capped by a configurable semaphore, so a traffic spike can't hammer the mail provider.
+Comments arrive two ways, each independently toggleable in config: a no-JS `<form>` (relayed by the bot account over SMTP) or a plain `mailto:` link for commenting directly by email. Outbound IMAP searches and SMTP deliveries are capped by a configurable semaphore, so a traffic spike can't hammer the mail provider.
 
 ## Embedding on a static page
 

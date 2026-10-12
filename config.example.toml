@@ -68,7 +68,7 @@ password = "an-app-password-not-the-account-password"
 # and discards the list's copy as a duplicate, so INBOX never sees it.
 # mailbox = "INBOX"
 
-# Credentials used to submit a web-relayed comment to the list.
+# Credentials used to deliver a web-relayed comment to the list.
 [smtp]
 host = "smtp.gmail.com"
 port = 587
@@ -76,11 +76,11 @@ port = 587
 username = "bot@ourdomain.example"
 password = "an-app-password-not-the-account-password"
 
-# Cap on how many SMTP submissions run at once. Optional, defaults to 4.
-# max_concurrent_submits = 4
+# Cap on how many SMTP deliveries run at once. Optional, defaults to 4.
+# max_concurrent_deliveries = 4
 
 # Backs both the incoming comment cache and the outgoing comment queue. A
-# web-submitted comment is queued here immediately and relayed to SMTP in
+# web-submitted comment is queued here immediately and delivered over SMTP in
 # the background, so the visitor doesn't wait on the mail provider; this
 # file is also what survives a restart so a pending comment isn't lost.
 # Must be a writable, persistent location (e.g. a mounted volume) — the
@@ -97,6 +97,7 @@ path = "/var/lib/threadmail/threadmail.db"
 # undelivered. Optional, defaults to 10800 (3 hours).
 # outgoing_message_ttl_secs = 10800
 
-# How often the background job retries whatever outgoing comments are
-# still queued. Optional, defaults to 10.
+# How often the outgoing comment worker retries whatever outgoing comments
+# are still queued. The worker only runs while something is queued.
+# Optional, defaults to 10.
 # outgoing_comment_sweep_interval_secs = 10

@@ -42,7 +42,7 @@ impl Thread {
         while i < messages.len() {
             if messages[i].is_top_level() && messages[i].subject.contains(subject.slug) {
                 let message = messages.remove(i);
-                top_level_messages.push(attach_replies(message, &mut messages));
+                top_level_messages.push(Node::resolve(message, &mut messages));
             } else {
                 i += 1;
             }
@@ -55,22 +55,25 @@ impl Thread {
     }
 }
 
-fn attach_replies(message: Message, remaining: &mut Vec<Message>) -> Node {
-    let mut replies = Vec::new();
-    let mut i = 0;
-    while i < remaining.len() {
-        if remaining[i].replies_to(&message) {
-            let child = remaining.remove(i);
-            replies.push(child);
-        } else {
-            i += 1;
+impl Node {
+    // Claims every direct reply out of remaining, then recurses so each reply claims its own.
+    fn resolve(message: Message, remaining: &mut Vec<Message>) -> Node {
+        let mut replies = Vec::new();
+        let mut i = 0;
+        while i < remaining.len() {
+            if remaining[i].replies_to(&message) {
+                let child = remaining.remove(i);
+                replies.push(child);
+            } else {
+                i += 1;
+            }
         }
+
+        let replies = replies
+            .into_iter()
+            .map(|child| Node::resolve(child, remaining))
+            .collect();
+
+        Node { message, replies }
     }
-
-    let replies = replies
-        .into_iter()
-        .map(|child| attach_replies(child, remaining))
-        .collect();
-
-    Node { message, replies }
 }

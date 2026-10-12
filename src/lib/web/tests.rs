@@ -1,11 +1,16 @@
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
+use lettre::address::Envelope;
 use tower::ServiceExt;
 
-use crate::config::{ImapConfig, MailingListConfig, SmtpConfig, StorageConfig, Theme, WebConfig};
+use crate::AppState;
+use crate::config::{
+    Config, ImapConfig, MailingListConfig, SmtpConfig, StorageConfig, Theme, WebConfig,
+};
+use crate::source::{MailSink, MailSource};
 use crate::sqlite_store::SqliteStore;
 
 use super::*;
@@ -28,59 +33,62 @@ impl MailSource for FixtureSource {
     }
 }
 
+// Delivers synchronously on submit; queueing and retry are smtp_sink's concern, tested there.
 #[derive(Default)]
 struct FixtureSink {
     sent: Mutex<Vec<crate::mail::Message>>,
+    on_delivered: OnceLock<crate::source::OnDelivered>,
 }
 
 impl MailSink for FixtureSink {
-    fn submit(&self, _envelope: &Envelope, raw: &[u8]) -> Result<(), crate::source::BoxError> {
+    fn boot(&self, on_delivered: crate::source::OnDelivered) {
+        let _ = self.on_delivered.set(on_delivered);
+    }
+
+    fn submit(
+        &self,
+        slug: &str,
+        _envelope: &Envelope,
+        raw: &[u8],
+    ) -> Result<(), crate::source::BoxError> {
         self.sent
             .lock()
             .unwrap()
             .push(crate::mail::Message::parse(raw, None).unwrap());
+        if let Some(on_delivered) = self.on_delivered.get() {
+            on_delivered(slug);
+        }
+        Ok(())
+    }
+
+    fn health(&self) -> Result<(), crate::source::BoxError> {
         Ok(())
     }
 }
 
-// Always fails, to exercise the outgoing comment queue's retry/expiry paths deterministically.
-#[derive(Default)]
-struct FailingSink;
+// Always unhealthy, to exercise the /healthz failure path deterministically.
+struct UnhealthySink;
 
-impl MailSink for FailingSink {
-    fn submit(&self, _envelope: &Envelope, _raw: &[u8]) -> Result<(), crate::source::BoxError> {
-        Err("the mail provider is unreachable".into())
-    }
-}
+impl MailSink for UnhealthySink {
+    fn boot(&self, _on_delivered: crate::source::OnDelivered) {}
 
-// Always fails, to exercise the /healthz failure path deterministically.
-struct FailingStore;
-
-impl OutgoingCommentStore for FailingStore {
-    fn enqueue(
+    fn submit(
         &self,
         _slug: &str,
-        _from_address: &str,
-        _to_address: &str,
+        _envelope: &Envelope,
         _raw: &[u8],
-    ) -> Result<OutgoingComment, crate::source::BoxError> {
-        Err("the comment store is unreachable".into())
+    ) -> Result<(), crate::source::BoxError> {
+        Err("the mail sink is unreachable".into())
     }
 
-    fn pending(&self) -> Result<Vec<OutgoingComment>, crate::source::BoxError> {
-        Err("the comment store is unreachable".into())
-    }
-
-    fn remove(&self, _id: i64) -> Result<(), crate::source::BoxError> {
-        Err("the comment store is unreachable".into())
+    fn health(&self) -> Result<(), crate::source::BoxError> {
+        Err("the mail sink is unreachable".into())
     }
 }
 
 // Long enough that nothing in these tests ever hits it by accident; tests
 // that care about expiry pass an explicit short TTL to `AppState::new`.
 const NO_REFRESH_NEEDED: u64 = 3600;
-const NO_OUTBOX_EXPIRY: u64 = 3600;
-const TEST_SWEEP_INTERVAL_SECS: u64 = 1;
 
 fn state(source: FixtureSource, sink: Arc<dyn MailSink>) -> AppState {
     state_with(source, sink, true, true)
@@ -153,13 +161,13 @@ fn test_config() -> Config {
             port: 587,
             username: String::new(),
             password: String::new(),
-            max_concurrent_submits: 4,
+            max_concurrent_deliveries: 4,
         },
         storage: StorageConfig {
             path: ":memory:".to_string(),
             incoming_message_ttl_secs: NO_REFRESH_NEEDED,
-            outgoing_message_ttl_secs: NO_OUTBOX_EXPIRY,
-            outgoing_comment_sweep_interval_secs: TEST_SWEEP_INTERVAL_SECS,
+            outgoing_message_ttl_secs: 3600,
+            outgoing_comment_sweep_interval_secs: 10,
         },
     }
 }
@@ -181,13 +189,15 @@ fn state_with_subject(
     config.mailing_list.subject_prefix = subject_prefix.to_string();
     config.mailing_list.subject_suffix = subject_suffix.to_string();
     config.storage.incoming_message_ttl_secs = incoming_message_ttl_secs;
-    AppState::new(Arc::new(source), sink, store.clone(), store, config)
+    let state = AppState::new(Arc::new(source), sink, store, config);
+    state.boot();
+    state
 }
 
 // Pre-warms the cache as if an earlier request had already resolved this
 // slug, so a GET renders it deterministically without a background refresh.
 fn seed(state: &AppState, slug: &str, raw_messages: &[Vec<u8>]) {
-    state.cache.store(slug, raw_messages).unwrap();
+    state.cache().store(slug, raw_messages).unwrap();
 }
 
 async fn get_html(app: Router, uri: &str) -> (StatusCode, String) {
@@ -219,7 +229,7 @@ async fn renders_an_existing_thread() {
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
 
-    let (status, html) = get_html(router(app_state), "/thread/my-post").await;
+    let (status, html) = get_html(WebState::new(app_state).router(), "/thread/my-post").await;
 
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Alice"));
@@ -238,7 +248,7 @@ async fn renders_an_empty_state_when_a_confirmed_search_found_nothing() {
     // genuinely found nothing, as opposed to a cache that's simply cold.
     seed(&app_state, "no-such-post", &[]);
 
-    let (status, html) = get_html(router(app_state), "/thread/no-such-post").await;
+    let (status, html) = get_html(WebState::new(app_state).router(), "/thread/no-such-post").await;
 
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("No comments yet"));
@@ -248,12 +258,13 @@ async fn renders_an_empty_state_when_a_confirmed_search_found_nothing() {
 
 #[tokio::test]
 async fn empty_state_still_offers_a_top_level_comment_form_when_relay_is_enabled() {
-    let app = router(state(
+    let app = WebState::new(state(
         FixtureSource {
             raw_messages: Vec::new(),
         },
         Arc::new(FixtureSink::default()),
-    ));
+    ))
+    .router();
 
     let (_, html) = get_html(app, "/thread/no-such-post").await;
 
@@ -273,7 +284,7 @@ async fn omits_the_comment_form_when_relay_comments_is_disabled() {
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
 
-    let (_, html) = get_html(router(app_state), "/thread/my-post").await;
+    let (_, html) = get_html(WebState::new(app_state).router(), "/thread/my-post").await;
 
     assert!(!html.contains("<form"));
     assert!(html.contains("mailto:group@googlegroups.com?subject=my-post"));
@@ -291,7 +302,7 @@ async fn omits_the_mailto_hint_when_show_email_link_is_disabled() {
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
 
-    let (_, html) = get_html(router(app_state), "/thread/my-post").await;
+    let (_, html) = get_html(WebState::new(app_state).router(), "/thread/my-post").await;
 
     assert!(html.contains("<form"));
     assert!(!html.contains("mailto:"));
@@ -306,7 +317,7 @@ async fn submitting_a_comment_redirects_immediately_and_relays_it_in_the_backgro
         },
         sink.clone(),
     );
-    let app = router(app_state.clone());
+    let app = WebState::new(app_state.clone()).router();
 
     let response = app
         .oneshot(
@@ -328,7 +339,6 @@ async fn submitting_a_comment_redirects_immediately_and_relays_it_in_the_backgro
         "/thread/my-post"
     );
 
-    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     let sent = sink.sent.lock().unwrap();
@@ -351,7 +361,7 @@ async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix()
         "Blog Comments: ",
         " (blog)",
     );
-    let app = router(app_state.clone());
+    let app = WebState::new(app_state.clone()).router();
 
     app.oneshot(
         Request::builder()
@@ -364,7 +374,6 @@ async fn a_submitted_comments_subject_carries_the_configured_prefix_and_suffix()
     .await
     .unwrap();
 
-    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     let sent = sink.sent.lock().unwrap();
@@ -380,7 +389,7 @@ async fn repeated_identical_submissions_only_relay_once() {
         },
         sink.clone(),
     );
-    let app = router(app_state.clone());
+    let app = WebState::new(app_state.clone()).router();
 
     for _ in 0..3 {
         let response = app
@@ -400,7 +409,6 @@ async fn repeated_identical_submissions_only_relay_once() {
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
     }
 
-    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
 
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
@@ -415,7 +423,7 @@ async fn a_different_comment_after_a_duplicate_still_relays() {
         },
         sink.clone(),
     );
-    let app = router(app_state.clone());
+    let app = WebState::new(app_state.clone()).router();
 
     for body in [
         "name=Bob&body=I+agree",
@@ -435,7 +443,6 @@ async fn a_different_comment_after_a_duplicate_still_relays() {
             .unwrap();
     }
 
-    spawn_outgoing_comment_worker(app_state);
     wait_for(|| sink.sent.lock().unwrap().len() >= 2).await;
 
     assert_eq!(sink.sent.lock().unwrap().len(), 2);
@@ -451,7 +458,7 @@ async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
         sink.clone(),
     );
     seed(&app_state, "posts/2026-07-12-example", &[ROOT.to_vec()]);
-    let app = router(app_state.clone());
+    let app = WebState::new(app_state.clone()).router();
 
     let (status, html) = get_html(app.clone(), "/thread/posts/2026-07-12-example").await;
     assert_eq!(status, StatusCode::OK);
@@ -475,7 +482,6 @@ async fn a_slug_with_slashes_routes_correctly_for_get_and_post() {
         "/thread/posts/2026-07-12-example"
     );
 
-    spawn_outgoing_comment_worker(app_state);
     wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
     assert_eq!(sink.sent.lock().unwrap().len(), 1);
 }
@@ -489,7 +495,7 @@ async fn shows_a_persistent_latency_notice_whenever_relay_is_enabled() {
         Arc::new(FixtureSink::default()),
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
-    let app = router(app_state);
+    let app = WebState::new(app_state).router();
 
     let (_, html) = get_html(app, "/thread/my-post").await;
 
@@ -507,7 +513,7 @@ async fn omits_the_latency_notice_when_relay_comments_is_disabled() {
         true,
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
-    let app = router(app_state);
+    let app = WebState::new(app_state).router();
 
     let (_, html) = get_html(app, "/thread/my-post").await;
 
@@ -517,14 +523,15 @@ async fn omits_the_latency_notice_when_relay_comments_is_disabled() {
 #[tokio::test]
 async fn rejects_a_comment_submission_when_relay_comments_is_disabled() {
     let sink = Arc::new(FixtureSink::default());
-    let app = router(state_with(
+    let app = WebState::new(state_with(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
         sink.clone(),
         false,
         true,
-    ));
+    ))
+    .router();
 
     let response = app
         .oneshot(
@@ -544,12 +551,13 @@ async fn rejects_a_comment_submission_when_relay_comments_is_disabled() {
 
 #[tokio::test]
 async fn a_cold_cache_renders_a_checking_notice_rather_than_claiming_no_comments() {
-    let app = router(state(
+    let app = WebState::new(state(
         FixtureSource {
             raw_messages: vec![ROOT.to_vec()],
         },
         Arc::new(FixtureSink::default()),
-    ));
+    ))
+    .router();
 
     let (status, html) = get_html(app, "/thread/my-post").await;
 
@@ -571,14 +579,15 @@ async fn the_page_always_carries_a_periodic_refresh_tag_regardless_of_cache_fres
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
 
-    let (_, fresh) = get_html(router(app_state), "/thread/my-post").await;
+    let (_, fresh) = get_html(WebState::new(app_state).router(), "/thread/my-post").await;
     let (_, cold) = get_html(
-        router(state(
+        WebState::new(state(
             FixtureSource {
                 raw_messages: Vec::new(),
             },
             Arc::new(FixtureSink::default()),
-        )),
+        ))
+        .router(),
         "/thread/no-such-post",
     )
     .await;
@@ -599,7 +608,7 @@ async fn a_stale_notice_shows_only_for_content_past_the_cache_ttl() {
         NO_REFRESH_NEEDED,
     );
     seed(&fresh_state, "my-post", &[ROOT.to_vec()]);
-    let (_, fresh) = get_html(router(fresh_state), "/thread/my-post").await;
+    let (_, fresh) = get_html(WebState::new(fresh_state).router(), "/thread/my-post").await;
 
     let stale_state = state_with_ttl(
         FixtureSource {
@@ -611,7 +620,7 @@ async fn a_stale_notice_shows_only_for_content_past_the_cache_ttl() {
         0,
     );
     seed(&stale_state, "my-post", &[ROOT.to_vec()]);
-    let (_, stale) = get_html(router(stale_state), "/thread/my-post").await;
+    let (_, stale) = get_html(WebState::new(stale_state).router(), "/thread/my-post").await;
 
     assert!(!fresh.contains("class=\"stale-notice\""));
     assert!(stale.contains("class=\"stale-notice\""));
@@ -627,13 +636,12 @@ async fn the_refresh_tag_reflects_the_configured_interval() {
             raw_messages: vec![ROOT.to_vec()],
         }),
         Arc::new(FixtureSink::default()),
-        store.clone(),
         store,
         config,
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
 
-    let (_, html) = get_html(router(app_state), "/thread/my-post").await;
+    let (_, html) = get_html(WebState::new(app_state).router(), "/thread/my-post").await;
 
     assert!(html.contains("content=\"45\""));
 }
@@ -649,15 +657,22 @@ async fn a_background_refresh_populates_the_cache_for_a_later_request() {
         true,
         NO_REFRESH_NEEDED,
     );
-    let cache = app_state.cache.clone();
-    let app = router(app_state);
+    let app = WebState::new(app_state.clone()).router();
 
     // Cold cache: kicks off a background refresh but renders a checking
     // notice for now, since it hasn't confirmed there's nothing there.
     let (_, first) = get_html(app.clone(), "/thread/my-post").await;
     assert!(first.contains("class=\"stale-notice\""));
 
-    wait_for(|| !cache.get("my-post").unwrap().raw_messages.is_empty()).await;
+    wait_for(|| {
+        !app_state
+            .cache()
+            .get("my-post")
+            .unwrap()
+            .raw_messages
+            .is_empty()
+    })
+    .await;
 
     let (_, second) = get_html(app, "/thread/my-post").await;
     assert!(second.contains("Great post!"));
@@ -687,11 +702,10 @@ async fn the_imap_search_uses_the_slug_wrapped_in_the_configured_prefix_and_suff
     let app_state = AppState::new(
         Arc::new(source),
         Arc::new(FixtureSink::default()),
-        store.clone(),
         store,
         config,
     );
-    let app = router(app_state);
+    let app = WebState::new(app_state).router();
 
     get_html(app, "/thread/my-post").await;
 
@@ -712,8 +726,7 @@ async fn a_successful_submission_triggers_an_immediate_re_search_so_the_reply_sh
         Arc::new(FixtureSink::default()),
     );
     seed(&app_state, "my-post", &[ROOT.to_vec()]);
-    let cache = app_state.cache.clone();
-    let app = router(app_state.clone());
+    let app = WebState::new(app_state.clone()).router();
 
     app.oneshot(
         Request::builder()
@@ -726,216 +739,52 @@ async fn a_successful_submission_triggers_an_immediate_re_search_so_the_reply_sh
     .await
     .unwrap();
 
-    // Once the worker delivers the queued comment, it re-triggers a search.
-    spawn_outgoing_comment_worker(app_state);
-    wait_for(|| cache.get("my-post").unwrap().refreshed_at.is_some()).await;
+    // Once the sink reports the comment delivered, it re-triggers a search.
+    wait_for(|| {
+        app_state
+            .cache()
+            .get("my-post")
+            .unwrap()
+            .refreshed_at
+            .is_some()
+    })
+    .await;
 
-    assert!(cache.get("my-post").unwrap().refreshed_at.is_some());
-}
-
-#[tokio::test]
-async fn a_queued_comment_is_removed_from_outgoing_comments_once_delivered() {
-    let sink = Arc::new(FixtureSink::default());
-    let app_state = state(
-        FixtureSource {
-            raw_messages: vec![ROOT.to_vec()],
-        },
-        sink,
+    assert!(
+        app_state
+            .cache()
+            .get("my-post")
+            .unwrap()
+            .refreshed_at
+            .is_some()
     );
-    let outgoing_comments = app_state.outgoing_comments.clone();
-    let app = router(app_state.clone());
-
-    app.oneshot(
-        Request::builder()
-            .method("POST")
-            .uri("/thread/my-post")
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
-
-    spawn_outgoing_comment_worker(app_state);
-    wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
-
-    assert!(outgoing_comments.pending().unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn a_failed_delivery_stays_queued_for_retry() {
-    let app_state = state(
-        FixtureSource {
-            raw_messages: vec![ROOT.to_vec()],
-        },
-        Arc::new(FailingSink),
-    );
-    let outgoing_comments = app_state.outgoing_comments.clone();
-    let app = router(app_state.clone());
-
-    app.oneshot(
-        Request::builder()
-            .method("POST")
-            .uri("/thread/my-post")
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
-
-    // Give the first (failing) attempt a moment to run and settle.
-    spawn_outgoing_comment_worker(app_state);
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    assert_eq!(outgoing_comments.pending().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn an_expired_pending_comment_is_dropped_without_being_sent() {
-    let sink = Arc::new(FixtureSink::default());
-    let store = Arc::new(SqliteStore::open(":memory:").unwrap());
-    let mut config = test_config();
-    config.storage.outgoing_message_ttl_secs = 0; // already expired the instant it's queued
-    let app_state = AppState::new(
-        Arc::new(FixtureSource {
-            raw_messages: Vec::new(),
-        }),
-        sink.clone(),
-        store.clone(),
-        store,
-        config,
-    );
-    let outgoing_comments = app_state.outgoing_comments.clone();
-    let app = router(app_state.clone());
-
-    app.oneshot(
-        Request::builder()
-            .method("POST")
-            .uri("/thread/my-post")
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from("name=Bob&body=I+agree&in_reply_to="))
-            .unwrap(),
-    )
-    .await
-    .unwrap();
-
-    spawn_outgoing_comment_worker(app_state);
-    wait_for(|| outgoing_comments.pending().unwrap().is_empty()).await;
-
-    assert!(outgoing_comments.pending().unwrap().is_empty());
-    assert!(sink.sent.lock().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn the_outgoing_comment_worker_delivers_messages_left_over_from_a_previous_run() {
-    let sink = Arc::new(FixtureSink::default());
-    let app_state = state(
-        FixtureSource {
-            raw_messages: Vec::new(),
-        },
-        sink.clone(),
-    );
-    // Simulate a comment that was queued before a restart, with no HTTP
-    // request involved this time.
-    app_state
-        .outgoing_comments
-        .enqueue(
-            "my-post",
-            "bot@ourdomain.example",
-            "group@googlegroups.com",
-            ROOT,
-        )
-        .unwrap();
-
-    spawn_outgoing_comment_worker(app_state);
-
-    wait_for(|| !sink.sent.lock().unwrap().is_empty()).await;
-
-    assert_eq!(sink.sent.lock().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn healthz_returns_ok_when_the_store_is_reachable() {
+async fn healthz_returns_ok_when_the_mail_sink_is_healthy() {
     let app_state = state(
         FixtureSource {
             raw_messages: Vec::new(),
         },
         Arc::new(FixtureSink::default()),
     );
-    *app_state.last_outgoing_sweep.lock().unwrap() = Some(SweepHeartbeat::now(
-        Duration::from_secs(TEST_SWEEP_INTERVAL_SECS),
-    ));
 
-    let (status, body) = get_html(router(app_state), "/healthz").await;
+    let (status, body) = get_html(WebState::new(app_state).router(), "/healthz").await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, "ok");
 }
 
 #[tokio::test]
-async fn healthz_returns_service_unavailable_when_the_store_is_unreachable() {
-    let cache = Arc::new(SqliteStore::open(":memory:").unwrap());
-    let app_state = AppState::new(
-        Arc::new(FixtureSource {
-            raw_messages: Vec::new(),
-        }),
-        Arc::new(FixtureSink::default()),
-        cache,
-        Arc::new(FailingStore),
-        test_config(),
-    );
-
-    let (status, _) = get_html(router(app_state), "/healthz").await;
-
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-}
-
-#[tokio::test]
-async fn healthz_returns_service_unavailable_when_the_outgoing_worker_has_stalled() {
+async fn healthz_returns_service_unavailable_when_the_mail_sink_is_unhealthy() {
     let app_state = state(
         FixtureSource {
             raw_messages: Vec::new(),
         },
-        Arc::new(FixtureSink::default()),
+        Arc::new(UnhealthySink),
     );
-    *app_state.last_outgoing_sweep.lock().unwrap() = Some(SweepHeartbeat {
-        interval: Duration::from_secs(TEST_SWEEP_INTERVAL_SECS),
-        last_swept: Instant::now() - Duration::from_secs(3600),
-    });
 
-    let (status, _) = get_html(router(app_state), "/healthz").await;
+    let (status, _) = get_html(WebState::new(app_state).router(), "/healthz").await;
 
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-}
-
-#[tokio::test]
-async fn healthz_returns_service_unavailable_when_the_outgoing_worker_has_never_ticked() {
-    let app_state = state(
-        FixtureSource {
-            raw_messages: Vec::new(),
-        },
-        Arc::new(FixtureSink::default()),
-    );
-
-    let (status, _) = get_html(router(app_state), "/healthz").await;
-
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-}
-
-#[tokio::test]
-async fn the_outgoing_worker_sets_its_heartbeat_on_each_tick() {
-    let app_state = state(
-        FixtureSource {
-            raw_messages: Vec::new(),
-        },
-        Arc::new(FixtureSink::default()),
-    );
-    assert!(app_state.last_outgoing_sweep.lock().unwrap().is_none());
-
-    spawn_outgoing_comment_worker(app_state.clone());
-
-    wait_for(|| app_state.last_outgoing_sweep.lock().unwrap().is_some()).await;
-
-    assert!(app_state.last_outgoing_sweep.lock().unwrap().is_some());
 }

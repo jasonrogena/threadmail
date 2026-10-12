@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use threadmail::AppState;
 use threadmail::config::Config;
 use threadmail::imap_source::ImapSource;
 use threadmail::smtp_sink::SmtpSink;
 use threadmail::sqlite_store::SqliteStore;
-use threadmail::web::{AppState, router, spawn_outgoing_comment_worker};
+use threadmail::web::WebState;
 use tracing::Level;
 
 /// Static-site comments backed by a mailing list, not a database
@@ -72,22 +73,23 @@ async fn serve(config_path: &str) {
         tracing::error!(%err, "could not build the IMAP source");
         std::process::exit(1);
     }));
-    let sink = Arc::new(SmtpSink::new(&config.smtp).unwrap_or_else(|err| {
-        tracing::error!(%err, "could not build the SMTP transport");
-        std::process::exit(1);
-    }));
     let store = Arc::new(
         SqliteStore::open(&config.storage.path).unwrap_or_else(|err| {
             tracing::error!(%err, path = config.storage.path, "could not open the database");
             std::process::exit(1);
         }),
     );
+    let sink = Arc::new(
+        SmtpSink::new(&config.smtp, &config.storage, store.clone()).unwrap_or_else(|err| {
+            tracing::error!(%err, "could not build the SMTP transport");
+            std::process::exit(1);
+        }),
+    );
 
     let bind_address = config.web.bind_address.clone();
 
-    let state = AppState::new(source, sink, store.clone(), store, config);
-
-    spawn_outgoing_comment_worker(state.clone());
+    let state = AppState::new(source, sink, store, config);
+    state.boot();
 
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
@@ -96,7 +98,7 @@ async fn serve(config_path: &str) {
             std::process::exit(1);
         });
     tracing::info!(address = bind_address, "listening");
-    axum::serve(listener, router(state))
+    axum::serve(listener, WebState::new(state).router())
         .await
         .unwrap_or_else(|err| {
             tracing::error!(%err, "server error");

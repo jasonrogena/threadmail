@@ -24,7 +24,7 @@ fn defaults_the_toggles_and_limits_when_omitted() {
     assert_eq!(config.web.refresh_interval_secs, 180);
     assert_eq!(config.imap.max_concurrent_searches, 8);
     assert_eq!(config.imap.mailbox, "INBOX");
-    assert_eq!(config.smtp.max_concurrent_submits, 4);
+    assert_eq!(config.smtp.max_concurrent_deliveries, 4);
     assert_eq!(config.storage.incoming_message_ttl_secs, 30);
     assert_eq!(config.storage.outgoing_message_ttl_secs, 3 * 60 * 60);
     assert_eq!(config.storage.outgoing_comment_sweep_interval_secs, 10);
@@ -35,7 +35,7 @@ fn honors_explicit_limits_when_given() {
     let config = Config::load("tests/configs/good-with-limits.toml").unwrap();
     assert_eq!(config.imap.max_concurrent_searches, 20);
     assert_eq!(config.imap.mailbox, "[Gmail]/All Mail");
-    assert_eq!(config.smtp.max_concurrent_submits, 2);
+    assert_eq!(config.smtp.max_concurrent_deliveries, 2);
     assert_eq!(config.storage.incoming_message_ttl_secs, 30);
     assert_eq!(config.web.refresh_interval_secs, 90);
 }
@@ -287,4 +287,35 @@ fn an_unrecognized_theme_fails_to_parse() {
     "#;
     let err = toml::from_str::<Config>(toml_str).unwrap_err();
     assert!(err.to_string().contains("theme"));
+}
+
+#[test]
+fn the_mailing_list_envelope_runs_from_the_bot_to_the_posting_address() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    let envelope = config.mailing_list.envelope().unwrap();
+    assert_eq!(
+        envelope.from().map(ToString::to_string),
+        Some(config.mailing_list.bot_address.clone())
+    );
+    assert_eq!(envelope.to().len(), 1);
+    assert_eq!(
+        envelope.to()[0].to_string(),
+        config.mailing_list.posting_address
+    );
+}
+
+#[test]
+fn an_invalid_mailing_list_address_fails_to_build_an_envelope() {
+    let mut config = Config::load("tests/configs/good.toml").unwrap();
+    config.mailing_list.posting_address = "not an address".to_string();
+    let err = config.mailing_list.envelope().unwrap_err();
+    assert!(matches!(err, Error::Address(_)));
+}
+
+#[test]
+fn max_concurrent_deliveries_still_loads_from_its_old_max_concurrent_submits_name() {
+    let smtp: SmtpConfig =
+        toml::from_str("host = \"smtp.example.com\"\nport = 587\nmax_concurrent_submits = 7\n")
+            .unwrap();
+    assert_eq!(smtp.max_concurrent_deliveries, 7);
 }
