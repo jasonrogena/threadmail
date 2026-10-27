@@ -19,7 +19,7 @@ axum = "0.8.9"
 clap = { version = "4.6.7", features = ["derive"] }
 imap = { version = "2.4.1", default-features = false }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "rustls-tls", "ring"] }
-mail-parser = "0.11.9"
+mail-parser = "1.0.0"
 regex = "1.13.1"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "logging", "tls12"] }
