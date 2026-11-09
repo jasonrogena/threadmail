@@ -20,7 +20,7 @@ I agree!\r\n";
 
 #[test]
 fn parses_a_top_level_message() {
-    let msg = Message::parse(TOP_LEVEL, None).unwrap();
+    let msg = Message::parse(TOP_LEVEL, None, &[]).unwrap();
     assert_eq!(msg.message_id, "root@example.com");
     assert_eq!(msg.subject, "my-first-post");
     assert_eq!(msg.author.display_name, "Alice");
@@ -30,7 +30,7 @@ fn parses_a_top_level_message() {
 
 #[test]
 fn parses_a_reply_with_threading_headers() {
-    let msg = Message::parse(REPLY, None).unwrap();
+    let msg = Message::parse(REPLY, None, &[]).unwrap();
     assert_eq!(msg.in_reply_to.as_deref(), Some("root@example.com"));
     assert_eq!(msg.references, vec!["root@example.com".to_string()]);
     assert!(!msg.is_top_level());
@@ -38,9 +38,24 @@ fn parses_a_reply_with_threading_headers() {
 
 #[test]
 fn never_exposes_a_real_address() {
-    let msg = Message::parse(TOP_LEVEL, None).unwrap();
+    let msg = Message::parse(TOP_LEVEL, None, &[]).unwrap();
     assert!(!msg.author.display_name.contains('@'));
     assert!(!msg.body.contains("alice@example.com"));
+}
+
+#[test]
+fn flags_a_sender_listed_as_a_moderator_ignoring_case() {
+    let moderators = vec!["Alice@Example.com".to_string()];
+    assert!(
+        Message::parse(TOP_LEVEL, None, &moderators)
+            .unwrap()
+            .from_moderator
+    );
+    assert!(
+        !Message::parse(REPLY, None, &moderators)
+            .unwrap()
+            .from_moderator
+    );
 }
 
 #[test]
@@ -51,14 +66,15 @@ Message-ID: <bare@example.com>\r\n\
 Content-Type: text/plain\r\n\
 \r\n\
 Hi.\r\n";
-    let msg = Message::parse(raw, None).unwrap();
+    let msg = Message::parse(raw, None, &[]).unwrap();
     assert_eq!(msg.author.display_name, "Anonymous");
 }
 
 #[test]
 fn rejects_malformed_input() {
     assert!(
-        Message::parse(b"not an email at all", None).is_err() || Message::parse(b"", None).is_err()
+        Message::parse(b"not an email at all", None, &[]).is_err()
+            || Message::parse(b"", None, &[]).is_err()
     );
 }
 
@@ -75,7 +91,7 @@ Great post!\r\n\
 You received this message because you are subscribed to the Google Groups \"blog-comments\" group.\r\n\
 To unsubscribe from this group, send an email to blog-comments+unsubscribe@googlegroups.com.\r\n";
     let footer = Regex::new(r"(?s)--\s*\nYou received this message.*").unwrap();
-    let msg = Message::parse(raw, Some(&footer)).unwrap();
+    let msg = Message::parse(raw, Some(&footer), &[]).unwrap();
     assert_eq!(msg.body, "Great post!");
 }
 
@@ -90,7 +106,7 @@ Great post!\r\n\
 \r\n\
 -- \r\n\
 Sent from my phone\r\n";
-    let msg = Message::parse(raw, None).unwrap();
+    let msg = Message::parse(raw, None, &[]).unwrap();
     assert!(msg.body.contains("Sent from my phone"));
 }
 
@@ -103,6 +119,6 @@ Content-Type: text/plain\r\n\
 \r\n\
 Great post!\r\n";
     let footer = Regex::new(r"(?s)--\s*\nYou received this message.*").unwrap();
-    let msg = Message::parse(raw, Some(&footer)).unwrap();
+    let msg = Message::parse(raw, Some(&footer), &[]).unwrap();
     assert_eq!(msg.body, "Great post!");
 }

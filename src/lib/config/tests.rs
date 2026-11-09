@@ -386,3 +386,46 @@ fn max_concurrent_deliveries_still_loads_from_its_old_max_concurrent_submits_nam
             .unwrap();
     assert_eq!(smtp.max_concurrent_deliveries, 7);
 }
+
+const MODERATED_CONFIG: &str = r#"
+    [web]
+    bind_address = "127.0.0.1:8080"
+    [mailing_list]
+    bot_address = "bot@example.com"
+    posting_address = "group@example.com"
+    moderators = ["owner@example.com"]
+    [imap]
+    host = "imap.example.com"
+    port = 993
+    [smtp]
+    host = "smtp.example.com"
+    port = 587
+    [storage]
+    path = "/tmp/threadmail-test-store.db"
+"#;
+
+#[test]
+fn moderation_is_disabled_with_the_default_keyword_when_omitted() {
+    let config = Config::load("tests/configs/good.toml").unwrap();
+    assert!(config.mailing_list.moderators.is_empty());
+    assert_eq!(config.mailing_list.moderation_keyword, "DELETE");
+}
+
+#[test]
+fn accepts_moderators_other_than_the_bot() {
+    let config = toml::from_str::<Config>(MODERATED_CONFIG)
+        .unwrap()
+        .validate()
+        .unwrap();
+    assert_eq!(config.mailing_list.moderators, vec!["owner@example.com"]);
+}
+
+#[test]
+fn rejects_the_bot_address_as_a_moderator() {
+    let toml_str = MODERATED_CONFIG.replace("owner@example.com", "BOT@example.com");
+    let err = toml::from_str::<Config>(&toml_str)
+        .unwrap()
+        .validate()
+        .unwrap_err();
+    assert!(matches!(err, Error::BotIsModerator));
+}

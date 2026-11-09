@@ -22,6 +22,21 @@ posting_address = "our-comments@googlegroups.com"
 # subject_prefix = "Blog Comments: "
 # subject_suffix = ""
 
+# Addresses allowed to moderate a comment by replying to it, through the
+# list, with moderation_keyword on a line of its own. The comment it directly
+# replies to and every reply under that are hidden; the rest of the thread
+# stays. The moderation reply itself is never shown, even when it hides
+# nothing. Trusted on the From: address alone, and bot_address is rejected
+# here since anyone can post as it via the web form. To undo a moderation,
+# delete the moderation reply from the bot's mailbox. Optional, empty
+# (disabled) by default.
+# moderators = ["me@ourdomain.example"]
+
+# The keyword a moderation reply must carry, matched exactly (case
+# included) against any unquoted line of its body. Optional, defaults to
+# "DELETE".
+# moderation_keyword = "DELETE"
+
 # The HTTP server and how the rendered page behaves for visitors.
 [web]
 # The address (host:port) the HTTP server listens on.

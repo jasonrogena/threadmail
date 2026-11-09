@@ -11,6 +11,7 @@ fn msg(id: &str, name: &str, body: &str) -> Message {
         author: Author {
             display_name: name.to_string(),
         },
+        from_moderator: false,
         body: body.to_string(),
         sent_at: None,
     }
@@ -23,6 +24,8 @@ fn mailing_list_config() -> MailingListConfig {
         body_footer_regex: None,
         subject_prefix: String::new(),
         subject_suffix: String::new(),
+        moderators: Vec::new(),
+        moderation_keyword: "DELETE".to_string(),
     }
 }
 

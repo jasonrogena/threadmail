@@ -23,6 +23,10 @@ pub enum Error {
     Address(#[from] lettre::address::AddressError),
     #[error("could not build the mailing list envelope")]
     Envelope(#[from] lettre::error::Error),
+    #[error(
+        "mailing_list.moderators must not include bot_address: anyone can post as it via the web form"
+    )]
+    BotIsModerator,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +56,14 @@ pub struct MailingListConfig {
     pub subject_prefix: String,
     #[serde(default)]
     pub subject_suffix: String,
+    #[serde(default)]
+    pub moderators: Vec<String>,
+    #[serde(default = "default_moderation_keyword")]
+    pub moderation_keyword: String,
+}
+
+fn default_moderation_keyword() -> String {
+    "DELETE".to_string()
 }
 
 impl MailingListConfig {
@@ -268,7 +280,20 @@ impl SmtpConfig {
 impl Config {
     pub fn load(path: &str) -> Result<Config, Error> {
         let contents = fs::read_to_string(path)?;
-        Ok(toml::from_str(&contents)?)
+        toml::from_str::<Config>(&contents)?.validate()
+    }
+
+    fn validate(self) -> Result<Config, Error> {
+        let bot = &self.mailing_list.bot_address;
+        if self
+            .mailing_list
+            .moderators
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case(bot))
+        {
+            return Err(Error::BotIsModerator);
+        }
+        Ok(self)
     }
 }
 
