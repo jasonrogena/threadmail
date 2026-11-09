@@ -104,13 +104,21 @@ impl WebState {
                 Message::parse(
                     bytes,
                     state.app.config().mailing_list.body_footer_regex.as_ref(),
+                    &state.app.config().mailing_list.moderators,
                 )
                 .ok()
             })
             .collect();
 
         match thread::Thread::resolve(&subject, messages) {
-            Ok(resolved) => Html(resolved.render(&options)).into_response(),
+            Ok(mut resolved) => {
+                resolved.hide_moderated(&state.app.config().mailing_list.moderation_keyword);
+                if resolved.top_level_messages.is_empty() {
+                    Html(render::empty(&slug, &options)).into_response()
+                } else {
+                    Html(resolved.render(&options)).into_response()
+                }
+            }
             Err(_) => Html(render::empty(&slug, &options)).into_response(),
         }
     }

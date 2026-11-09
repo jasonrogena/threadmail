@@ -53,6 +53,7 @@ pub struct Message {
     pub references: Vec<String>,
     pub subject: String,
     pub author: Author,
+    pub from_moderator: bool,
     pub body: String,
     pub sent_at: Option<i64>,
 }
@@ -60,6 +61,16 @@ pub struct Message {
 impl Message {
     pub fn is_top_level(&self) -> bool {
         self.in_reply_to.is_none() && self.references.is_empty()
+    }
+
+    pub fn is_moderation_reply(&self, moderation_keyword: &str) -> bool {
+        self.from_moderator
+            && self
+                .body
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.starts_with('>'))
+                .any(|line| line == moderation_keyword)
     }
 
     pub fn nearest_parent_id(&self, message_ids: &HashSet<String>) -> Option<&str> {
@@ -70,7 +81,11 @@ impl Message {
             .find(|id| message_ids.contains(*id))
     }
 
-    pub fn parse(raw: &[u8], footer_regex: Option<&Regex>) -> Result<Message, Error> {
+    pub fn parse(
+        raw: &[u8],
+        footer_regex: Option<&Regex>,
+        moderators: &[String],
+    ) -> Result<Message, Error> {
         let parsed = MessageParser::default()
             .parse(raw)
             .ok_or(Error::Malformed)?;
@@ -87,13 +102,17 @@ impl Message {
 
         let subject = parsed.subject().unwrap_or_default().trim().to_string();
 
-        let display_name = parsed
-            .from()
-            .and_then(|addrs| addrs.first())
+        let from = parsed.from().and_then(|addrs| addrs.first());
+
+        let display_name = from
             .and_then(|addr| addr.name())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Anonymous".to_string());
+
+        let from_moderator = from
+            .and_then(|addr| addr.address())
+            .is_some_and(|address| moderators.iter().any(|m| m.eq_ignore_ascii_case(address)));
 
         let body = parsed
             .body_text(0)
@@ -108,6 +127,7 @@ impl Message {
             references,
             subject,
             author: Author { display_name },
+            from_moderator,
             body,
             sent_at,
         })

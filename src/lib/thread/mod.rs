@@ -57,9 +57,34 @@ impl Thread {
             top_level_messages,
         })
     }
+
+    pub fn hide_moderated(&mut self, moderation_keyword: &str) {
+        self.top_level_messages
+            .retain(|node| !node.is_moderated(moderation_keyword));
+        for node in &mut self.top_level_messages {
+            node.hide_moderated(moderation_keyword);
+        }
+    }
 }
 
 impl Node {
+    fn is_moderated(&self, moderation_keyword: &str) -> bool {
+        self.message.is_moderation_reply(moderation_keyword)
+            || self.replies.iter().any(|reply| {
+                reply.message.is_moderation_reply(moderation_keyword)
+                    && reply.message.in_reply_to.as_deref()
+                        == Some(self.message.message_id.as_str())
+            })
+    }
+
+    fn hide_moderated(&mut self, moderation_keyword: &str) {
+        self.replies
+            .retain(|reply| !reply.is_moderated(moderation_keyword));
+        for reply in &mut self.replies {
+            reply.hide_moderated(moderation_keyword);
+        }
+    }
+
     // Claims every direct reply out of remaining, then recurses so each reply claims its own.
     fn resolve(
         message: Message,

@@ -54,7 +54,7 @@ impl MailSink for FixtureSink {
         self.sent
             .lock()
             .unwrap()
-            .push(crate::mail::Message::parse(raw, None).unwrap());
+            .push(crate::mail::Message::parse(raw, None, &[]).unwrap());
         if let Some(on_delivered) = self.on_delivered.get() {
             on_delivered(slug);
         }
@@ -140,6 +140,8 @@ fn test_config() -> Config {
             body_footer_regex: None,
             subject_prefix: String::new(),
             subject_suffix: String::new(),
+            moderators: vec!["owner@example.com".to_string()],
+            moderation_keyword: "DELETE".to_string(),
         },
         web: WebConfig {
             bind_address: "127.0.0.1:0".to_string(),
@@ -882,4 +884,89 @@ async fn a_submitted_reply_nests_under_its_parent_once_the_thread_reloads() {
     assert!(root_idx < replies_idx);
     assert!(replies_idx < reply_idx);
     assert!(html.contains("Bob (via web)"));
+}
+
+const MODERATED_REPLY: &[u8] = b"From: \"Spammer (via web)\" <bot@ourdomain.example>\r\n\
+Subject: Re: my-post\r\n\
+Message-ID: <moderated@example.com>\r\n\
+In-Reply-To: <root@example.com>\r\n\
+Date: Wed, 16 Sep 2026 10:00:00 +0000\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+Buy cheap things!\r\n";
+
+const LEGIT_REPLY: &[u8] = b"From: \"Bob\" <bob@example.com>\r\n\
+Subject: Re: my-post\r\n\
+Message-ID: <legit@example.com>\r\n\
+In-Reply-To: <root@example.com>\r\n\
+Date: Wed, 16 Sep 2026 11:00:00 +0000\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+Thoughtful reply.\r\n";
+
+fn moderation_reply(from: &str, in_reply_to: &str) -> Vec<u8> {
+    format!(
+        "From: \"Owner\" <{from}>\r\n\
+Subject: Re: my-post\r\n\
+Message-ID: <moderation@example.com>\r\n\
+In-Reply-To: <{in_reply_to}>\r\n\
+Date: Wed, 16 Sep 2026 12:00:00 +0000\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+DELETE\r\n"
+    )
+    .into_bytes()
+}
+
+async fn render_seeded(raw_messages: Vec<Vec<u8>>) -> String {
+    let app_state = state(
+        FixtureSource {
+            raw_messages: raw_messages.clone(),
+        },
+        Arc::new(FixtureSink::default()),
+    );
+    seed(&app_state, "my-post", &raw_messages);
+    let (status, html) = get_html(WebState::new(app_state).router(), "/thread/my-post").await;
+    assert_eq!(status, StatusCode::OK);
+    html
+}
+
+#[tokio::test]
+async fn a_moderation_reply_hides_only_the_moderated_comment() {
+    let html = render_seeded(vec![
+        ROOT.to_vec(),
+        MODERATED_REPLY.to_vec(),
+        LEGIT_REPLY.to_vec(),
+        moderation_reply("owner@example.com", "moderated@example.com"),
+    ])
+    .await;
+
+    assert!(html.contains("Great post!"));
+    assert!(html.contains("Thoughtful reply."));
+    assert!(!html.contains("Buy cheap things!"));
+    assert!(!html.contains("DELETE"));
+}
+
+#[tokio::test]
+async fn a_keyword_reply_from_a_non_moderator_is_ignored() {
+    let html = render_seeded(vec![
+        ROOT.to_vec(),
+        MODERATED_REPLY.to_vec(),
+        moderation_reply("someone@example.com", "moderated@example.com"),
+    ])
+    .await;
+
+    assert!(html.contains("Buy cheap things!"));
+}
+
+#[tokio::test]
+async fn hiding_every_top_level_comment_renders_the_empty_state() {
+    let html = render_seeded(vec![
+        ROOT.to_vec(),
+        moderation_reply("owner@example.com", "root@example.com"),
+    ])
+    .await;
+
+    assert!(html.contains("No comments yet"));
+    assert!(!html.contains("Great post!"));
 }
