@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use mail_parser::MessageParser;
 use regex::Regex;
 
@@ -60,9 +62,12 @@ impl Message {
         self.in_reply_to.is_none() && self.references.is_empty()
     }
 
-    pub fn replies_to(&self, parent: &Message) -> bool {
-        self.in_reply_to.as_deref() == Some(parent.message_id.as_str())
-            || self.references.iter().any(|r| r == &parent.message_id)
+    pub fn nearest_parent_id(&self, message_ids: &HashSet<String>) -> Option<&str> {
+        self.in_reply_to
+            .iter()
+            .chain(self.references.iter().rev())
+            .map(String::as_str)
+            .find(|id| message_ids.contains(*id))
     }
 
     pub fn parse(raw: &[u8], footer_regex: Option<&Regex>) -> Result<Message, Error> {

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::mail::{Message, Subject};
 
 #[cfg(test)]
@@ -35,6 +37,8 @@ impl Thread {
             return Err(Error::NoTopLevelMessage);
         }
 
+        let message_ids: HashSet<String> = messages.iter().map(|m| m.message_id.clone()).collect();
+
         // Every non-reply message matching the subject is a top-level message
         // with equal standing, in the order they were sent.
         let mut top_level_messages = Vec::new();
@@ -42,7 +46,7 @@ impl Thread {
         while i < messages.len() {
             if messages[i].is_top_level() && messages[i].subject.contains(subject.slug) {
                 let message = messages.remove(i);
-                top_level_messages.push(Node::resolve(message, &mut messages));
+                top_level_messages.push(Node::resolve(message, &mut messages, &message_ids));
             } else {
                 i += 1;
             }
@@ -57,11 +61,15 @@ impl Thread {
 
 impl Node {
     // Claims every direct reply out of remaining, then recurses so each reply claims its own.
-    fn resolve(message: Message, remaining: &mut Vec<Message>) -> Node {
+    fn resolve(
+        message: Message,
+        remaining: &mut Vec<Message>,
+        message_ids: &HashSet<String>,
+    ) -> Node {
         let mut replies = Vec::new();
         let mut i = 0;
         while i < remaining.len() {
-            if remaining[i].replies_to(&message) {
+            if remaining[i].nearest_parent_id(message_ids) == Some(message.message_id.as_str()) {
                 let child = remaining.remove(i);
                 replies.push(child);
             } else {
@@ -71,7 +79,7 @@ impl Node {
 
         let replies = replies
             .into_iter()
-            .map(|child| Node::resolve(child, remaining))
+            .map(|child| Node::resolve(child, remaining, message_ids))
             .collect();
 
         Node { message, replies }

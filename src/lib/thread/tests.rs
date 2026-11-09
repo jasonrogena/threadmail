@@ -128,3 +128,32 @@ fn a_non_reply_message_still_matches_on_the_bare_slug_regardless_of_prefix_and_s
     assert_eq!(thread.top_level_messages.len(), 2);
     assert_eq!(thread.top_level_messages[1].message.message_id, "other");
 }
+
+#[test]
+fn a_reply_carrying_the_full_references_chain_nests_under_its_direct_parent() {
+    let top = msg("top", "my-post", None, 1);
+    let reply = msg("reply", "Re: my-post", Some("top"), 2);
+    let mut nested = msg("nested", "Re: my-post", Some("reply"), 3);
+    nested.references = vec!["top".to_string(), "reply".to_string()];
+
+    let thread = Thread::resolve(&subject("my-post", "", ""), vec![top, reply, nested]).unwrap();
+
+    let replies = &thread.top_level_messages[0].replies;
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].message.message_id, "reply");
+    assert_eq!(replies[0].replies[0].message.message_id, "nested");
+}
+
+#[test]
+fn a_reply_whose_parent_is_missing_nests_under_its_nearest_present_ancestor() {
+    let top = msg("top", "my-post", None, 1);
+    let mut nested = msg("nested", "Re: my-post", Some("deleted"), 3);
+    nested.references = vec!["top".to_string(), "deleted".to_string()];
+
+    let thread = Thread::resolve(&subject("my-post", "", ""), vec![top, nested]).unwrap();
+
+    assert_eq!(
+        thread.top_level_messages[0].replies[0].message.message_id,
+        "nested"
+    );
+}
